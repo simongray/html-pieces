@@ -1,0 +1,14 @@
+.DS_Store
+.cpcache/
+.nrepl-port
+.clj-kondo/.cache/
+.lsp/
+target/
+*.iml
+.idea/
+# the tests of html5lib-tests, as the README tells
+dev-resources/html5lib-tests/
+
+# ClojureScript tooling
+node_modules/
+.shadow-cljs/

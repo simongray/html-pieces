@@ -1,0 +1,9 @@
+{
+  "name": "html-pieces",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Node test tools for html-pieces. The library itself has no npm dependencies.",
+  "devDependencies": {
+    "shadow-cljs": "^3.5.3"
+  }
+}
