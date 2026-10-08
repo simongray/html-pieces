@@ -132,10 +132,10 @@
 
 ;; The parse builds the tree in a builder, a transient map of :stack, the
 ;; open elements, the root first, each a transient vector [tag attrs &
-;; children], and :open, how many are open by tag, so that an end tag
-;; nothing matches costs nothing to ignore. Each function of the builder
-;; takes it and gives it back, through the values that assoc!, conj! and
-;; pop! return. Tags are the keywords of Hiccup.
+;; children], :open, how many are open by tag, so that an end tag nothing
+;; matches costs nothing to ignore, and :max-depth. Each function of the
+;; builder takes it and gives it back, through the values that assoc!,
+;; conj! and pop! return. Tags are the keywords of Hiccup.
 
 (defn ^:no-doc merge-text
   "The element `node` with each run of adjacent strings among its children
@@ -231,9 +231,9 @@
 
 (defn- open-element!
   "The builder `b` with the element `tag` and its `attrs` opened, or
-  appended when it's void, `self-closing?` in SVG or MathML, or past
-  max-depth. The elements that its start tag implies an end for are
-  closed first."
+  appended when it's void, `self-closing?` in SVG or MathML, or past the
+  :max-depth of the builder. The elements that its start tag implies an
+  end for are closed first."
   [b tag attrs self-closing?]
   (let [b (if (and (block-elements tag) (open-index b #{:p} paragraph-scope))
             (close-through! b #{:p} #{})
@@ -246,7 +246,7 @@
             b)]
     (if (or (void-elements tag)
             (and self-closing? (or (foreign-roots tag) (open? b foreign-roots)))
-            (> (count (:stack b)) max-depth))
+            (> (count (:stack b)) (:max-depth b)))
       (append! b [tag attrs])
       (push! b tag attrs))))
 
@@ -287,7 +287,8 @@
       b)))
 
 (defn parse
-  "The HTML fragment `s` as a sequence of Hiccup nodes.
+  "The HTML fragment `s` as a sequence of Hiccup nodes, nested at most as
+  deep as the :max-depth of `opts`, or max-depth.
 
   The tokens are those of the HTML Standard, by
   dk.simongray.html-pieces.tokenizer, and the tree follows the rules of
@@ -311,13 +312,16 @@
 
   Hiccup renderers take a sequence as a fragment, so the result can go
   straight into a parent element."
-  [s]
-  (let [builder (transient {:stack (transient [(transient [:root {}])])
-                            :open  (transient {})})]
-    (loop [b (reduce step! builder (tokenizer/tokens s))]
-      (if (= 1 (count (:stack b)))
-        (apply list (drop 2 (merge-text (persistent! (nth (:stack b) 0)))))
-        (recur (close-top! b))))))
+  ([s]
+   (parse s {}))
+  ([s opts]
+   (let [builder (transient {:stack     (transient [(transient [:root {}])])
+                             :open      (transient {})
+                             :max-depth (or (:max-depth opts) max-depth)})]
+     (loop [b (reduce step! builder (tokenizer/tokens s))]
+       (if (= 1 (count (:stack b)))
+         (apply list (drop 2 (merge-text (persistent! (nth (:stack b) 0)))))
+         (recur (close-top! b)))))))
 
 (defn ^:no-doc scheme
   "The scheme of the URL `s` in lower case, or nil for a relative URL.
@@ -369,15 +373,73 @@
   commas, with a descriptor after each URL."
   #{:itemtype :ping :srcset})
 
+(def allowed-schemes
+  "The schemes of the URLs that sanitize keeps, and that text and markdown
+  show as links."
+  #{"http" "https" "mailto"})
+
+(def paragraph-tags
+  "Elements set off by a blank line in text and Markdown."
+  #{:p :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :pre :ul :ol :dl :table :hr :figure})
+
+(def line-tags
+  "Elements that end a line in text and Markdown."
+  #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot
+    :section :article})
+
+(def max-quotes
+  "How deeply markdown nests quotes. A quote deeper inside is a paragraph,
+  so that no line carries a > for each of hundreds of levels."
+  16)
+
+(def default-options
+  "The default of each option. Every function takes one map of options and
+  reads the keys that it knows:
+
+  - :max-depth, how deep parse nests elements
+  - :allowed-tags, :dropped-tags and :allowed-attributes, the tables of
+    sanitize
+  - :allowed-schemes, the schemes of the URLs that sanitize keeps, and
+    :url-attributes and :url-list-attributes, the attributes that hold them
+  - :url, a function of a URL that gives the URL to keep, or nil
+  - :paragraph-tags and :line-tags, where text and markdown break lines
+  - :max-quotes, how deeply markdown nests quotes
+  - :links?, true for text to put the URL after each link
+  - :quirks?, false to leave out a repair that the HTML Standard doesn't
+    make: reading a C1 control in text as windows-1252
+
+  Each of them but :url, :links? and :quirks? is a var of the same name."
+  {:max-depth           max-depth
+   :allowed-tags        allowed-tags
+   :dropped-tags        dropped-tags
+   :allowed-attributes  allowed-attributes
+   :allowed-schemes     allowed-schemes
+   :url-attributes      url-attributes
+   :url-list-attributes url-list-attributes
+   :url                 identity
+   :paragraph-tags      paragraph-tags
+   :line-tags           line-tags
+   :max-quotes          max-quotes
+   :links?              false
+   :quirks?             true})
+
+(defn- options
+  "The `opts` with the default-options of the keys that they leave out or
+  give as nil."
+  [opts]
+  (if (empty? opts)
+    default-options
+    (into default-options (remove (comp nil? val)) opts)))
+
 (def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
 (defn- safe-url?
-  "Whether the URL `s` is absolute, with a scheme that a client can follow,
-  read as a browser reads it."
-  [s]
-  (contains? #{"http" "https" "mailto"} (scheme s)))
+  "Whether the URL `s` is absolute, with a scheme of `schemes`, read as a
+  browser reads it."
+  [schemes s]
+  (contains? schemes (scheme s)))
 
 (defn- element?
   "Whether `x` is a Hiccup element: a vector with a keyword tag."
@@ -393,18 +455,18 @@
     [(node 0) {} (subvec node 1)]))
 
 (defn- checked-url
-  "The URL `s` as the function `url` gives it, when that's a URL that
-  safe-url? allows, or else nil."
-  [url s]
+  "The URL `s` as the :url of `opts` gives it, when that's a URL with one
+  of their :allowed-schemes, or else nil."
+  [opts s]
   (when (string? s)
-    (let [u (url s)]
-      (when (and (string? u) (safe-url? u))
+    (let [u ((:url opts) s)]
+      (when (and (string? u) (safe-url? (:allowed-schemes opts) u))
         u))))
 
 (defn- checked-urls
   "The list of URLs `s` of the attribute `k`, each one as checked-url gives
-  it with `url`, or nil when one isn't allowed."
-  [url k s]
+  it with `opts`, or nil when one isn't allowed."
+  [opts k s]
   (when (string? s)
     (let [srcset?   (= :srcset k)
           items     (->> (str/split s (if srcset? #"," #"[\t\n\f\r ]+"))
@@ -413,41 +475,40 @@
           candidate #"([^\t\n\f\r ]+)(.*)"
           checked   (for [item items
                           :let [[_ u more] (re-matches candidate item)]]
-                      (some-> (checked-url url u) (str more)))]
+                      (some-> (checked-url opts u) (str more)))]
       (when (and (seq checked) (every? some? checked))
         (str/join (if srcset? ", " " ") checked)))))
 
 (defn- safe-attributes
-  "The attributes `attrs` of an element `tag` that the table `allowed`
-  has, with each URL as checked-url gives it with `url`, and without one
+  "The attributes `attrs` of an element `tag` that the :allowed-attributes
+  of `opts` has, with each URL as checked-url gives it, and without one
   that isn't allowed."
-  [tag attrs allowed url]
-  (into {} (for [[k v] attrs
-                 :when (contains? (get allowed tag) k)
-                 :let  [v (cond
-                            (url-attributes k)      (checked-url url v)
-                            (url-list-attributes k) (checked-urls url k v)
-                            :else                   v)]
-                 :when (some? v)]
-             [k v])))
+  [opts tag attrs]
+  (let [{:keys [allowed-attributes url-attributes url-list-attributes]} opts]
+    (into {} (for [[k v] attrs
+                   :when (contains? (get allowed-attributes tag) k)
+                   :let  [v (cond
+                              (url-attributes k)      (checked-url opts v)
+                              (url-list-attributes k) (checked-urls opts k v)
+                              :else                   v)]
+                   :when (some? v)]
+               [k v]))))
 
 (defn sanitize
-  "The Hiccup `nodes` that a client may render, by the rules below and
-  `opts`. In the result:
+  "The Hiccup `nodes` that a client may render, by the rules below and the
+  `opts` of default-options. In the result:
 
-  - the elements and attributes of allowed-tags and allowed-attributes
+  - the elements and attributes of :allowed-tags and :allowed-attributes
     are kept
-  - a URL is kept when it's http, https or mailto, after the :url option
-    has rewritten it
-  - the elements of dropped-tags are removed with their content
+  - a URL is kept when its scheme is one of :allowed-schemes, after the
+    function :url has rewritten it
+  - the elements of :dropped-tags are removed with their content
   - any other element is replaced by its children
   - lists and tables lose the whitespace of their layout
 
-  The options :allowed-tags, :dropped-tags and :allowed-attributes take
-  the place of the vars of the same names. The :url option is a function
-  of a URL that gives the URL to keep, or nil, e.g. to make a relative URL
-  absolute against the page that the HTML came from. A client would
-  resolve it against its own page, so without :url it's left out.
+  The function :url can e.g. make a relative URL absolute against the page
+  that the HTML came from. A client would resolve it against its own page,
+  so without such a function a relative URL is left out.
 
   Text in the result is decoded, e.g. &lt; is <, so render it with a
   renderer that escapes text, such as Replicant, Reagent,
@@ -455,11 +516,10 @@
   ([nodes]
    (sanitize nodes {}))
   ([nodes opts]
-   (let [allowed    (or (:allowed-tags opts) allowed-tags)
-         dropped    (or (:dropped-tags opts) dropped-tags)
-         attributes (or (:allowed-attributes opts) allowed-attributes)
-         url        (or (:url opts) identity)
-         layout?    #(and (string? %) (blank? %))]
+   (let [opts    (options opts)
+         allowed (:allowed-tags opts)
+         dropped (:dropped-tags opts)
+         layout? #(and (string? %) (blank? %))]
      (letfn [(node [x]
                (cond
                  (string? x)        [x]
@@ -474,7 +534,7 @@
                                               (remove layout?)
                                               identity))
                                       children)
-                           safe (safe-attributes tag attrs attributes url)]
+                           safe (safe-attributes opts tag attrs)]
                        (if (allowed tag)
                          [(into [tag safe] kids)]
                          kids))))))]
@@ -503,7 +563,7 @@
 (defn hiccup
   "The Hiccup that a client can render for the HTML or plain text `s`, as a
   sequence of nodes to put inside a parent element. HTML is parsed and
-  sanitized with the `opts` that sanitize takes, and plain text becomes
+  sanitized with the `opts` of parse and sanitize, and plain text becomes
   paragraphs with line breaks. Text in the result is decoded, so it needs
   a renderer that escapes text, as sanitize says."
   ([s]
@@ -511,25 +571,16 @@
   ([s opts]
    (let [s (str s)]
      (if (markup? s)
-       (sanitize (parse s) opts)
+       (sanitize (parse s opts) opts)
        (paragraphs s)))))
-
-(def paragraph-tags
-  "Elements set off by a blank line in text and Markdown."
-  #{:p :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :pre :ul :ol :dl :table :hr :figure})
-
-(def line-tags
-  "Elements that end a line in text and Markdown."
-  #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot
-    :section :article})
 
 (defn- nodes-of
   "The nodes of `x`, which is a string, a node or nodes. A string is parsed
-  when it holds markup, or read as paragraphs when it's plain text, and
-  anything else is no nodes."
-  [x]
+  with `opts` when it holds markup, or read as paragraphs when it's plain
+  text, and anything else is no nodes."
+  [x opts]
   (cond
-    (string? x)     (if (markup? x) (parse x) (paragraphs x))
+    (string? x)     (if (markup? x) (parse x opts) (paragraphs x))
     (element? x)    [x]
     (sequential? x) x
     :else           []))
@@ -582,27 +633,30 @@
 (defn- shown
   "The text `s` with each carriage return as a space, and without the
   other control characters but tabs and line feeds, which a terminal or a
-  notification could obey. A C1 control is mostly a character of
-  windows-1252 read as Latin-1, so it's that character where it has one,
-  as for a numeric reference in 13.2.5.84 of the HTML Standard."
-  [s]
+  notification could obey. With `quirks?`, a C1 control, which is mostly
+  a character of windows-1252 read as Latin-1, is that character where it
+  has one, as for a numeric reference in 13.2.5.84 of the HTML Standard."
+  [s quirks?]
   (if (controls? s)
-    (-> (str/replace s "\r" " ")
-        (str/replace #"[\x80-\x9F]"
-                     #(if-let [x (get tokenizer/c1-replacements
-                                      (tokenizer/code (first %)))]
-                        (entities/code-point->string x)
-                        ""))
-        (str/replace #"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]" ""))
+    (cond-> (str/replace s "\r" " ")
+      quirks?
+      (str/replace #"[\x80-\x9F]"
+                   #(if-let [x (get tokenizer/c1-replacements
+                                    (tokenizer/code (first %)))]
+                      (entities/code-point->string x)
+                      ""))
+
+      :always
+      (str/replace #"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]" ""))
     s))
 
 (defn- tidy
-  "The rendered `s` as shown gives it, trimmed, with each run of blank
-  lines cut to one. Its lines are trimmed too, except those of
-  preformatted text."
-  [s]
+  "The rendered `s` as shown gives it with `quirks?`, trimmed, with each
+  run of blank lines cut to one. Its lines are trimmed too, except those
+  of preformatted text."
+  [s quirks?]
   (let [trim-line #(if (str/starts-with? % pre-mark) % (trim-whitespace %))
-        lines     (->> (str/split-lines (shown s))
+        lines     (->> (str/split-lines (shown s quirks?))
                        (into [] (map trim-line))
                        (str/join "\n"))
         text      (trim-whitespace (cond-> lines
@@ -617,15 +671,15 @@
 
   The `inline` function renders a string, and takes the string and the
   context. The `element` function renders an element, and takes its tag
-  and attributes, its rendered children and the context. The context is a
-  map:
+  and attributes, its rendered children and the context. The context is
+  the options of default-options, with these keys too:
 
   - :list is :ul or :ol inside a list
   - :index is a volatile that counts the list items
   - :pre, :code and :quotes count the pre, code and blockquote elements
     that it's in, the element itself included
 
-  The elements of dropped-tags render as nothing, as a browser shows no
+  The elements of :dropped-tags render as nothing, as a browser shows no
   script. Every line of the outermost pre starts with pre-mark."
   [nodes inline element context]
   (letfn [(node [x outer]
@@ -635,7 +689,7 @@
               :else
               (let [[tag attrs children] (parts x)
                     counted              #(update %1 %2 (fnil inc 0))]
-                (if (dropped-tags tag)
+                (if ((:dropped-tags outer) tag)
                   ""
                   (let [ctx   (cond-> outer
                                 (#{:ul :ol} tag)
@@ -650,7 +704,8 @@
                                (marked-lines inner)
                                inner)
                              ctx))))))]
-    (tidy (str/join (into [] (map #(node % context)) nodes)))))
+    (tidy (str/join (into [] (map #(node % context)) nodes))
+          (:quirks? context))))
 
 (defn- list-marker
   [{:keys [list index]}]
@@ -661,44 +716,47 @@
 
 (defn- text-element
   "The text of the element of `tag` and `attrs`, whose children render as
-  `inner`, in the context `ctx` of render, with the URL of a link when
-  `links?`."
-  [links? [tag attrs] inner ctx]
-  (let [href   (when links?
+  `inner`, in the context `ctx` of render, with the URL of a link when the
+  context has :links?."
+  [[tag attrs] inner ctx]
+  (let [href   (when (:links? ctx)
                  (some-> (:href attrs) str (str/replace #"[\t\n\r]" "")))
         shown? (and href
-                    (safe-url? href)
+                    (safe-url? (:allowed-schemes ctx) href)
                     (not= (trim-whitespace inner) href))]
     (cond
-      (= :br tag)          "\n"
-      (= :hr tag)          "\n\n"
-      (= :img tag)         (collapse (str (:alt attrs)))
-      (= :a tag)           (if shown? (str inner " (" href ")") inner)
-      (= :li tag)          (str (list-marker ctx) (trim-whitespace inner) "\n")
-      (< 1 (:pre ctx 0))   inner
-      (paragraph-tags tag) (str "\n\n" inner "\n\n")
-      (line-tags tag)      (str inner "\n")
-      :else                inner)))
+      (= :br tag)                  "\n"
+      (= :hr tag)                  "\n\n"
+      (= :img tag)                 (collapse (str (:alt attrs)))
+      (= :a tag)                   (if shown? (str inner " (" href ")") inner)
+      (= :li tag)                  (str (list-marker ctx)
+                                        (trim-whitespace inner) "\n")
+      (< 1 (:pre ctx 0))           inner
+      ((:paragraph-tags ctx) tag)  (str "\n\n" inner "\n\n")
+      ((:line-tags ctx) tag)       (str inner "\n")
+      :else                        inner)))
 
 (defn text
-  "The HTML text or Hiccup `x` as plain text, with the URLs of links when
-  `opts` has :links?. In the text:
+  "The HTML text or Hiccup `x` as plain text, by the `opts` of
+  default-options. In the text:
 
-  - paragraphs are separated by a blank line
+  - paragraphs and the other elements of :paragraph-tags are separated by
+    a blank line, and those of :line-tags end a line
   - list items are on their own lines, with a marker
   - a link is its text, followed by its URL in parentheses when :links?
-    and the URL is http, https or mailto
+    and the scheme of the URL is one of :allowed-schemes
   - an image is its alt text
-  - a carriage return is a space, a C1 control is the character of
-    windows-1252 that it stands for, and other control characters are
-    left out, but for tabs and line breaks"
+  - a carriage return is a space, and other control characters are left
+    out, but for tabs and line breaks. When :quirks?, a C1 control is the
+    character of windows-1252 that it stands for."
   ([x]
    (text x {}))
-  ([x {:keys [links?] :as opts}]
-   (render (nodes-of x)
-           (fn [s ctx] (if (:pre ctx) s (collapse s)))
-           (partial text-element links?)
-           {})))
+  ([x opts]
+   (let [opts (options opts)]
+     (render (nodes-of x opts)
+             (fn [s ctx] (if (:pre ctx) s (collapse s)))
+             text-element
+             opts))))
 
 ;; CommonMark 0.31.2, section 2.4: a backslash escapes any ASCII
 ;; punctuation. These start inline markup, with the | of tables and the ~
@@ -830,13 +888,13 @@
   as `inner`, in the context `ctx` of render.
 
   An element inside a pre or a code element is its text, and a quote
-  deeper than 16 is a paragraph, so that no line carries a > for each of
-  hundreds of levels."
+  deeper than the :max-quotes of the context is a paragraph."
   [[tag attrs] inner ctx]
   (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))]
                   (parse-long n))
         inside? (or (< (if (= :pre tag) 1 0) (:pre ctx 0))
                     (< (if (= :code tag) 1 0) (:code ctx 0)))
+        safe?   #(and (string? %) (safe-url? (:allowed-schemes ctx) %))
         quoted  #(->> (str/split-lines %)
                       (map (fn [line] (str "> " line)))
                       (str/join "\n"))]
@@ -860,13 +918,13 @@
       (= :img tag)
       (let [src (:src attrs)
             alt (markdown-inline (collapse (str (:alt attrs))))]
-        (if (and (string? src) (safe-url? src))
+        (if (safe? src)
           (str "![" alt "](" (markdown-url src) ")")
           alt))
 
       (= :a tag)
       (let [href (:href attrs)]
-        (if (and (string? href) (safe-url? href) (not (blank? inner)))
+        (if (and (safe? href) (not (blank? inner)))
           (str "[" inner "](" (markdown-url href) ")")
           inner))
 
@@ -882,7 +940,7 @@
         (str "\n\n" fence "\n" code "\n" fence "\n\n"))
 
       (= :blockquote tag)
-      (if (< 16 (:quotes ctx))
+      (if (< (:max-quotes ctx) (:quotes ctx))
         (str "\n\n" inner "\n\n")
         (str "\n\n" (quoted (block-text inner)) "\n\n"))
 
@@ -895,43 +953,47 @@
       (= :tr tag)
       (str "| " inner "\n")
 
-      (paragraph-tags tag)
+      ((:paragraph-tags ctx) tag)
       (str "\n\n" (block-text inner) "\n\n")
 
-      (line-tags tag)
+      ((:line-tags ctx) tag)
       (str (block-text inner) "\n")
 
       :else
       inner)))
 
 (defn markdown
-  "The HTML text or Hiccup `x` as Markdown, which a Markdown renderer shows
-  as a browser shows the HTML. In the Markdown:
+  "The HTML text or Hiccup `x` as Markdown, by the `opts` of
+  default-options, which a Markdown renderer shows as a browser shows the
+  HTML. In the Markdown:
 
   - headings, emphasis, links, images, lists, quotes, code and rules take
-    their Markdown forms
+    their Markdown forms, and quotes nest at most :max-quotes deep
   - a line break becomes a backslash at the end of the line
   - text is escaped where Markdown would read it as markup
-  - a link or an image is its text when its URL isn't http, https or
-    mailto
-  - control characters are left out as text leaves them out
+  - a link or an image is its text when the scheme of its URL isn't one of
+    :allowed-schemes
+  - paragraphs, line breaks and control characters are as text has them
   - everything else is its text"
-  [x]
-  (let [md (render (nodes-of x)
-                   (fn [s ctx]
-                     (cond
-                       (:pre ctx)  s
-                       (:code ctx) (collapse s)
-                       :else       (markdown-text (collapse s))))
-                   markdown-element
-                   {})]
-    ;; two line breaks in a row, which Markdown has no way to write, as the
-    ;; end of a paragraph, and a line break before a block or at the end,
-    ;; outside any element
-    (cond-> md
-      (str/includes? md "\\")
-      (-> (str/replace #"(?<!\\)\\\n(?:\\\n)+" "\n\n")
-          (str/replace #"(?<!\\)\\(?=\n\n|$)" "")))))
+  ([x]
+   (markdown x {}))
+  ([x opts]
+   (let [opts (options opts)
+         md   (render (nodes-of x opts)
+                      (fn [s ctx]
+                        (cond
+                          (:pre ctx)  s
+                          (:code ctx) (collapse s)
+                          :else       (markdown-text (collapse s))))
+                      markdown-element
+                      opts)]
+     ;; two line breaks in a row, which Markdown has no way to write, as
+     ;; the end of a paragraph, and a line break before a block or at the
+     ;; end, outside any element
+     (cond-> md
+       (str/includes? md "\\")
+       (-> (str/replace #"(?<!\\)\\\n(?:\\\n)+" "\n\n")
+           (str/replace #"(?<!\\)\\(?=\n\n|$)" ""))))))
 
 (def ^:no-doc text-escapes
   "The characters that text in HTML escapes, by character."
@@ -966,29 +1028,31 @@
 
 (defn emit
   "The Hiccup `nodes` as an HTML string, with the text escaped and the void
-  elements without end tags.
+  elements without end tags. HTML or plain text in a string is first made
+  Hiccup by hiccup with `opts`, and so sanitized.
 
-  HTML or plain text in a string is made Hiccup by hiccup, and so
-  sanitized. Hiccup is written as it's given, except for a name that HTML
-  can't hold: such an attribute is left out, and such an element is
-  replaced by its children."
-  [nodes]
-  (letfn [(node [x]
-            (cond
-              (string? x)        (str/escape x text-escapes)
-              (not (element? x)) ""
-              :else
-              (let [[tag attrs children] (parts x)
-                    inner #(str/join (map node children))]
-                (if-let [name (html-name tag)]
-                  (let [start (str "<" name (attributes-html attrs) ">")]
-                    (if (void-elements tag)
-                      start
-                      (str start (inner) "</" name ">")))
-                  (inner)))))]
-    (str/join (map node (if (string? nodes)
-                          (hiccup nodes)
-                          (nodes-of nodes))))))
+  Hiccup is written as it's given, except for a name that HTML can't hold:
+  such an attribute is left out, and such an element is replaced by its
+  children."
+  ([nodes]
+   (emit nodes {}))
+  ([nodes opts]
+   (letfn [(node [x]
+             (cond
+               (string? x)        (str/escape x text-escapes)
+               (not (element? x)) ""
+               :else
+               (let [[tag attrs children] (parts x)
+                     inner #(str/join (map node children))]
+                 (if-let [name (html-name tag)]
+                   (let [start (str "<" name (attributes-html attrs) ">")]
+                     (if (void-elements tag)
+                       start
+                       (str start (inner) "</" name ">")))
+                   (inner)))))]
+     (str/join (map node (if (string? nodes)
+                           (hiccup nodes opts)
+                           (nodes-of nodes opts)))))))
 
 #?(:clj
    (comment

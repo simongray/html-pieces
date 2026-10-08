@@ -47,21 +47,30 @@ from its own server, which then knows who reads the notes and when, so to
 keep images from loading, leave `:src` out of the allowed attributes of
 `:img`.
 
-For more control, call `parse` and `sanitize` yourself: `sanitize` takes
-the same options as `hiccup`, including your own tables of allowed tags
-and attributes. `text` puts the URL after each link with
-`{:links? true}`, and `markdown` escapes whatever Markdown would read as
-markup.
+Every function takes the same map of options, which `default-options`
+lists, so one map can serve them all, e.g. your own tables of allowed tags
+and attributes, or `{:links? true}` for `text` to put the URL after each
+link. For more control, call `parse` and `sanitize` yourself.
 
 
 ## Design
 
 - **The HTML Standard first.** The tokenizer follows section 13.2.5 of
   the standard and passes the tokenizer tests of html5lib-tests, so text
-  reads as it does in a browser.
+  reads as it does in a browser. The code cites the sections it
+  implements.
 - **Pieces, not documents.** The tree builder has only the rules that
   pieces of HTML need. What it leaves out, e.g. the repairs of tables, SVG
   and MathML, has a TODO in the namespace docstrings.
+- **Lenient, but transparent.** Broken HTML is repaired as the standard
+  says, the way every browser repairs it. The one repair that the
+  standard doesn't make, reading a C1 control as windows-1252, can be
+  switched off with `{:quirks? false}`.
+- **Convention over configuration.** Every function works without
+  options. Each table and limit is a public var, and an option of the
+  same name replaces it.
+- **Pure functions over data.** Strings and Hiccup in, strings and Hiccup
+  out, with no I/O and no state.
 - **Safe by default.** `hiccup` keeps only the tags, attributes and URLs
   that an app can render safely. `text` and `markdown` leave out what a
   terminal or a Markdown renderer would act on.

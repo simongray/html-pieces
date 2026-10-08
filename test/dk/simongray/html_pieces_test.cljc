@@ -229,6 +229,26 @@
            (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
   (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape"))
 
+(deftest options
+  (testing "an option in the place of each default, one map for every function"
+    (is (= [[:b {} [:i {} [:u {}] "x"]]] (html/parse "<b><i><u>x" {:max-depth 2})))
+    (is (= [[:a {:href "ftp://x/"} "x"] [:a {} "y"]]
+           (html/hiccup "<a href=\"ftp://x/\">x</a><a href=\"https://y/\">y</a>"
+                        {:allowed-schemes #{"ftp"}})))
+    (is (= [[:img {:alt "a"}] [:img {:data-src "https://x/a.png"}]]
+           (html/hiccup "<img data-src=\"javascript:x\" alt=a><img data-src=\"https://x/a.png\">"
+                        {:allowed-attributes {:img #{:data-src :alt}}
+                         :url-attributes     #{:data-src}})))
+    (is (= "a\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags #{} :line-tags #{:p}})))
+    (is (= "x (ftp://x/)" (html/text "<a href=\"ftp://x/\">x</a>" {:links? true :allowed-schemes #{"ftp"}})))
+    (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quotes 1})))
+    (is (= "<a href=\"https://s.example/x\">x</a>" (html/emit "<a href=\"/x\">x</a>" {:url #(str "https://s.example" %)}))))
+  (testing "the repair that the HTML Standard doesn't make, switched off"
+    (is (= "dont" (html/text (str "<p>don" (char 0x92) "t</p>") {:quirks? false}))))
+  (testing "an option of nil is the default"
+    (is (= "a\n\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags nil})))
+    (is (= html/max-depth (:max-depth html/default-options)))))
+
 (deftest emitting-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
          (html/emit [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]] [:input {:disabled true}]])))
