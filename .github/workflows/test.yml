@@ -5,6 +5,11 @@ on:
     branches: [main, master]
   pull_request:
 
+# The commit of html5lib-tests that the tokenizer passes, as the README
+# tells. Its tokenizer tests run where they are in dev-resources.
+env:
+  HTML5LIB_TESTS: c777c408b61078ea2eb4acefc2535f54dbc8b28a
+
 jobs:
   test:
     name: Java 25, Node 24
@@ -33,6 +38,11 @@ jobs:
             ~/.gitlibs
             .cpcache
           key: clojure-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+
+      - name: html5lib-tests
+        run: |
+          git clone --quiet https://github.com/html5lib/html5lib-tests dev-resources/html5lib-tests
+          git -C dev-resources/html5lib-tests checkout --quiet "$HTML5LIB_TESTS"
 
       - name: JVM tests
         run: clojure -X:test
@@ -75,6 +85,11 @@ jobs:
             ~/.gitlibs
             .cpcache
           key: clojure-floor-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+
+      - name: html5lib-tests
+        run: |
+          git clone --quiet https://github.com/html5lib/html5lib-tests dev-resources/html5lib-tests
+          git -C dev-resources/html5lib-tests checkout --quiet "$HTML5LIB_TESTS"
 
       - name: JVM tests
         run: clojure -X:test

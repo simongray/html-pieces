@@ -89,8 +89,8 @@ clojure -M:cljs compile test  # the tests in Node
 
 The tokenizer runs the tokenizer tests of
 [html5lib-tests](https://github.com/html5lib/html5lib-tests) when they're
-in `dev-resources/html5lib-tests/`, which Git ignores. To get the version
-that the tokenizer passes:
+in `dev-resources/html5lib-tests/`, which Git ignores. CI fetches them
+there, and to get the version that the tokenizer passes yourself:
 
 ```bash
 git clone https://github.com/html5lib/html5lib-tests dev-resources/html5lib-tests
