@@ -10,7 +10,7 @@
   names that HTML reads without a semicolon: 365 of the 2,231 names. The
   rest came to HTML from MathML, such as &NotEqualTilde;, and a reference
   to one of them stays text. They would make the table eight times as
-  large, and no show notes in a corpus of real podcast feeds use one.
+  large, and the HTML of real feeds and comments hardly ever uses one.
 
   TODO: read the names from MathML too, by an option or a namespace of
   their own, for HTML that writes mathematics with them."
