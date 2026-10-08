@@ -6,7 +6,8 @@
   strings, with adjacent runs joined and character references decoded.
   Every other token is a map with a :type:
 
-      {:type :start-tag :name \"a\" :attrs {\"href\" \"/\"} :self-closing? false}
+      {:type :start-tag :name \"a\" :attrs {\"href\" \"/\"}
+       :self-closing? false}
       {:type :end-tag :name \"a\"}
       {:type :comment :data \" a note \"}
       {:type :doctype}
@@ -221,6 +222,21 @@
                    :cljs (.indexOf s x i)))]
     (if (neg? k) n k)))
 
+(defn ^:no-doc searcher
+  "A function like index-of for the text `s` of length `n`, of a string and
+  an index. It keeps the index that it found for each string, and gives it
+  again until the reading passes it. The readers only move forward, so a
+  string that isn't there is searched for once, not by every reader."
+  [s n]
+  (let [found (volatile! {})]
+    (fn [x i]
+      (let [k (get @found x -1)]
+        (if (<= i k)
+          k
+          (let [k (index-of s n x i)]
+            (vswap! found assoc x k)
+            k))))))
+
 (defn ^:no-doc starts-at?
   "Whether the text `s` has `word` at `i`."
   [s i word]
@@ -282,7 +298,8 @@
         semi   (when (identical? \; (char-at s n end))
                  (get entities/references (str run ";")))
         legacy (when-not semi
-                 (some #(when-let [chars (get entities/references (subs run 0 %))]
+                 (some #(when-let [chars (get entities/references
+                                              (subs run 0 %))]
                           [% chars])
                        (range (min (count run) longest-legacy-name) 0 -1)))]
     (cond
@@ -360,11 +377,12 @@
   [index token state]: up to a less-than sign, after which the markup
   state reads what it starts, or the end.
 
-  The text runs to the next less-than sign or ampersand, which indexOf
-  finds. Each index is kept until the reading passes it, so that a text
-  with many of one and none of the other is still read in linear time."
-  [s n i text]
-  (loop [i i lt (index-of s n "<" i) amp (index-of s n "&" i)]
+  The text runs to the next less-than sign, which indexOf finds, or the
+  next ampersand, which the searcher `search` finds. Each index is kept
+  until the reading passes it, so that a text with many of one and none of
+  the other is still read in linear time."
+  [s n i text search]
+  (loop [i i lt (index-of s n "<" i) amp (long (search "&" i))]
     (let [stop (min lt amp)]
       (when (< i stop)
         (append! text (subs s i stop)))
@@ -375,7 +393,7 @@
                        (append! text chars)
                        (recur j
                               (if (< lt j) (index-of s n "<" j) lt)
-                              (index-of s n "&" j)))))))
+                              (long (search "&" j))))))))
 
 (defn ^:no-doc end-tag-at
   "What the less-than sign at `i` starts in a state of raw text, by the
@@ -416,10 +434,13 @@
   sign and end tag states, 13.2.5.9 to 13.2.5.14, as [index token state]:
   up to an appropriate end tag for `last`, or the end.
 
-  As in data-text, the less-than signs and, in RCDATA, the ampersands are
-  found by indexOf, each kept until the reading passes it."
-  [s n i text last rcdata?]
-  (loop [i i lt (index-of s n "<" i) amp (if rcdata? (index-of s n "&" i) n)]
+  As in data-text, indexOf finds the less-than signs and, in RCDATA, the
+  searcher `search` finds the ampersands, each kept until the reading
+  passes it."
+  [s n i text last rcdata? search]
+  (loop [i   i
+         lt  (index-of s n "<" i)
+         amp (if rcdata? (long (search "&" i)) n)]
     (let [stop (min lt amp)]
       (when (< i stop)
         (append! text (without-nul (subs s i stop))))
@@ -437,7 +458,9 @@
         :else
         (let [[chars j] (character-reference s n (inc amp) false)]
           (append! text chars)
-          (recur j (if (< lt j) (index-of s n "<" j) lt) (index-of s n "&" j)))))))
+          (recur j
+                 (if (< lt j) (index-of s n "<" j) lt)
+                 (long (search "&" j))))))))
 
 (defn ^:no-doc script-text
   "Read the script data state, 13.2.5.4, from `i` onto the builder `text`,
@@ -453,8 +476,10 @@
   - in an escape, --> ends it, and <script followed by a space, / or >
     starts a double escape
   - in a double escape, --> ends both escapes, and </script followed by a
-    space, / or > ends the double one"
-  [s n i text last]
+    space, / or > ends the double one
+
+  The searcher `search` finds each -->."
+  [s n i text last search]
   (let [closing     (fn [k]
                       (let [[kind j name] (end-tag-at s n k last)]
                         (when (= :end kind)
@@ -467,7 +492,7 @@
     ;; arrow is the next --> once an escape needs it, kept until passed
     (loop [pos i mode :script arrow -1]
       (let [arrow (if (and (not= :script mode) (< arrow pos))
-                    (index-of s n "-->" pos)
+                    (long (search "-->" pos))
                     arrow)]
         (case mode
           :script
@@ -622,7 +647,8 @@
   the comment has already, as [index token]: to the next > or the end."
   [s n i data]
   (let [end (index-of s n ">" i)]
-    [(min n (inc end)) (comment-token (str data (without-nul (subs s i end))))]))
+    [(min n (inc end))
+     (comment-token (str data (without-nul (subs s i end))))]))
 
 (defn- unclosed
   "The `data` of a comment that the end of the text cut off, without the
@@ -639,20 +665,22 @@
 
   The comment states, 13.2.5.43 to 13.2.5.52, end a comment at once with >
   or ->, or else at the first --> or --!>, and keep every other character
-  as data. So the comment is found by those searches rather than a state
-  for each character, which the tests of html5lib show to be the same.
-  A comment that the end of the text cuts off ends there."
-  [s n i]
+  as data. So the comment is found by those searches, which the searcher
+  `search` makes, rather than a state for each character, which the tests
+  of html5lib show to be the same. A comment that the end of the text cuts
+  off ends there."
+  [s n i search]
   (let [c (char-at s n i)]
     (if (or (identical? \> c)
             (and (identical? \- c) (identical? \> (char-at s n (inc i)))))
       [(if (identical? \> c) (inc i) (+ i 2)) (comment-token "")]
-      (let [arrow (index-of s n "-->" i)
-            bang  (index-of s n "--!>" i)
-            end   (min arrow bang)]
+      (let [arrow (long (search "-->" i))
+            bang  (long (search "--!>" i))
+            end   (min arrow bang)
+            data  #(comment-token (without-nul %))]
         (if (< end n)
-          [(+ end (if (= end arrow) 3 4)) (comment-token (without-nul (subs s i end)))]
-          [n (comment-token (without-nul (unclosed (subs s i))))])))))
+          [(+ end (if (= end arrow) 3 4)) (data (subs s i end))]
+          [n (data (unclosed (subs s i)))])))))
 
 ;; 13.2.5.53 to 13.2.5.68, DOCTYPE
 
@@ -678,11 +706,11 @@
 
 (defn- markup-declaration
   "Read the markup declaration open state, 13.2.5.42, from `i` after <!, as
-  [index token state]. [CDATA[ always starts a bogus comment, as it does
-  outside SVG and MathML."
-  [s n i]
+  [index token state], with the searcher `search`. [CDATA[ always starts a
+  bogus comment, as it does outside SVG and MathML."
+  [s n i search]
   (conj (cond
-          (starts-at? s i "--")           (comment-text s n (+ i 2))
+          (starts-at? s i "--")           (comment-text s n (+ i 2) search)
           (starts-at-ci? s n i "doctype") (doctype-text s n (+ i 7))
           (starts-at? s i "[CDATA[")      (bogus-comment s n (+ i 7) "[CDATA[")
           :else                           (bogus-comment s n i ""))
@@ -690,14 +718,15 @@
 
 (defn ^:no-doc markup
   "Read what a less-than sign starts, from `i` after it, as [index token
-  state], by the tag open state, 13.2.5.6: a tag, a comment or a DOCTYPE,
-  or else the less-than sign as text. <? starts a bogus comment, as it did
-  before the processing instructions of 13.2.5.72."
-  [s n i]
+  state], by the tag open state, 13.2.5.6, with the searcher `search`: a
+  tag, a comment or a DOCTYPE, or else the less-than sign as text. <?
+  starts a bogus comment, as it did before the processing instructions of
+  13.2.5.72."
+  [s n i search]
   (let [c (char-at s n i)]
     (cond
       (nil? c)          [n "<" :eof]
-      (identical? \! c) (markup-declaration s n (inc i))
+      (identical? \! c) (markup-declaration s n (inc i) search)
       (identical? \/ c) (end-tag-open s n (inc i))
       (identical? \? c) (conj (bogus-comment s n i "") :data)
       (alpha? c)        (conj (tag s n i false nil) :data)
@@ -731,24 +760,27 @@
    (tokens s {}))
   ([s {:keys [state last-start-tag text-states]
        :or   {state :data text-states text-states}}]
-   (let [s    (normalized (str s))
-         n    (count s)
-         text (builder)]
+   (let [s      (normalized (str s))
+         n      (count s)
+         text   (builder)
+         search (searcher s n)]
      ;; Each reader gives [index token state]. Text goes onto the builder,
      ;; so that adjacent runs join, and every other token onto out after
      ;; the text before it. A start tag sets the state by text-states.
      (loop [i 0 st state last last-start-tag out (transient [])]
        (if (= :eof st)
          (persistent! (with-text out text))
-         (let [[j token st'] (case st
-                               :data        (data-text s n i text)
-                               :rcdata      (raw-text s n i text last true)
-                               :rawtext     (raw-text s n i text last false)
-                               :script-data (script-text s n i text last)
-                               :plaintext   (plain-text s n i text)
-                               :markup      (markup s n i))
-               start         (when (= :start-tag (:type token))
-                               (:name token))]
+         (let [[j token st']
+               (case st
+                 :data        (data-text s n i text search)
+                 :rcdata      (raw-text s n i text last true search)
+                 :rawtext     (raw-text s n i text last false search)
+                 :script-data (script-text s n i text last search)
+                 :plaintext   (plain-text s n i text)
+                 :markup      (markup s n i search))
+
+               start (when (= :start-tag (:type token))
+                       (:name token))]
            (when (string? token)
              (append! text token))
            (recur (long j)
@@ -760,9 +792,10 @@
 
 (comment
   (tokens "<p class=note>Fish &amp chips &notin; <b>bold</p><!-- x -->")
-  ;; => [{:type :start-tag, :name "p", :attrs {"class" "note"}, :self-closing? false}
+  ;; => [{:type :start-tag :name "p" :attrs {"class" "note"}
+  ;;      :self-closing? false}
   ;;     "Fish & chips ∉ "
-  ;;     {:type :start-tag, :name "b", :attrs {}, :self-closing? false}
+  ;;     {:type :start-tag :name "b" :attrs {} :self-closing? false}
   ;;     "bold"
   ;;     {:type :end-tag, :name "p"}
   ;;     {:type :comment, :data " x "}]
