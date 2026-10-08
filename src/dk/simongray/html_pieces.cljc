@@ -9,9 +9,9 @@
   markdown functions render HTML or Hiccup as text, and emit writes Hiccup
   back as HTML.
 
-  The tokens are those of the HTML Standard, by dk.simongray.html-pieces.tokenizer,
-  and the tree follows the rules of the standard that such content needs.
-  It's no parser of whole documents.
+  The tokens are those of the HTML Standard, by
+  dk.simongray.html-pieces.tokenizer, and the tree follows the rules of
+  the standard that such content needs.
 
   TODO: the rules of the tree builder that a browser follows and this
   leaves out, by an option or a namespace of their own: formatting that a
@@ -22,6 +22,7 @@
   removed, e.g. in metadata, so that a validator can tell the author of
   the HTML what a client won't show."
   (:require [clojure.string :as str]
+            [dk.simongray.html-pieces.entities :as entities]
             [dk.simongray.html-pieces.tokenizer :as tokenizer]))
 
 ;; HTML Standard, "ASCII whitespace": tab, LF, FF, CR and space. HTML
@@ -63,10 +64,17 @@
         :else                                     false))))
 
 (def ^:no-doc markup
-  "What makes a text HTML rather than plain text: a comment or a
-  whole tag. Plain text may hold an email address in angle brackets, or a
-  less-than sign before a 3, and neither is a tag."
-  #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:[\t\n\f\r ][^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*[\t\n\f\r ]*>")
+  "A comment or a whole tag, which markup? looks for."
+  (re-pattern (str "<!--"
+                   "|<[a-zA-Z][a-zA-Z0-9]*(?:[\\t\\n\\f\\r ][^<>]*)?/?>"
+                   "|</[a-zA-Z][a-zA-Z0-9]*[\\t\\n\\f\\r ]*>")))
+
+(defn markup?
+  "Whether the text `s` is HTML rather than plain text: whether it holds a
+  comment or a whole tag. Plain text may hold an email address in angle
+  brackets, or a less-than sign before a 3, and neither is a tag."
+  [s]
+  (boolean (re-find markup (str s))))
 
 ;; HTML Standard, "Elements": the void elements, and param of older pages
 (def ^:no-doc void-elements
@@ -117,10 +125,10 @@
   #{:pre :listing :textarea})
 
 (def max-depth
-  "How deep the parse function nests elements, as deep as WebKit and
-  Chromium do. An element opened deeper is kept empty, and its content goes
-  to its parent, so no walk of the tree recurses without bound."
-  512)
+  "How deep the parse function nests elements, far deeper than real show
+  notes go. An element opened deeper is kept empty, and its content goes
+  to its parent, so that no walk of the tree overflows the stack."
+  128)
 
 ;; The parse builds the tree in a builder, a transient map of :stack, the
 ;; open elements, the root first, each a transient vector [tag attrs &
@@ -134,16 +142,18 @@
   joined into one. Only a comment or a stray end tag between two texts
   leaves such a run, so most elements come back as they are."
   [node]
-  (if (loop [i 3]
-        (cond
-          (<= (count node) i)                                   false
-          (and (string? (nth node i)) (string? (nth node (dec i)))) true
-          :else                                                 (recur (inc i))))
-    (into []
-          (comp (partition-by string?)
-                (mapcat #(if (string? (first %)) [(apply str %)] %)))
-          node)
-    node))
+  (let [text? #(string? (nth node %))
+        runs? (loop [i 3]
+                (cond
+                  (<= (count node) i)             false
+                  (and (text? i) (text? (dec i))) true
+                  :else                           (recur (inc i))))]
+    (if runs?
+      (into []
+            (comp (partition-by string?)
+                  (mapcat #(if (string? (first %)) [(apply str %)] %)))
+            node)
+      node)))
 
 (defn- top
   "The stack index of the top element of the builder `b`."
@@ -279,8 +289,9 @@
 (defn parse
   "The HTML fragment `s` as a sequence of Hiccup nodes.
 
-  The tokens are those of the HTML Standard, by dk.simongray.html-pieces.tokenizer,
-  and the tree follows the rules of the standard that embedded HTML needs:
+  The tokens are those of the HTML Standard, by
+  dk.simongray.html-pieces.tokenizer, and the tree follows the rules of
+  the standard that embedded HTML needs:
 
   - unclosed paragraphs, list items, table cells, headings and links
     close where HTML says they do
@@ -293,6 +304,10 @@
   browser would carry them on. Tags and attribute keys are lower-case
   keywords, an attribute without a value has the empty string, and text
   is a string with its character references decoded.
+
+  A whole page parses too, e.g. for its link, meta and title elements, but
+  its html, head and body elements stay as they're written, without the
+  rules that a browser has for them.
 
   Hiccup renderers take a sequence as a fragment, so the result can go
   straight into a parent element."
@@ -315,13 +330,6 @@
               (str/replace #"[\t\n\r]" "")
               (str/replace #"^[\x00-\x20]+" ""))]
     (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*(?=:)" s) str/lower-case)))
-
-(defn ^:no-doc text-of
-  "The value `v` of an attribute when it's text that isn't blank, which a
-  bare attribute's empty string, or true in Hiccup, isn't."
-  [v]
-  (when (and (string? v) (not (blank? v)))
-    v))
 
 (def allowed-tags
   "The elements that sanitize keeps."
@@ -348,19 +356,33 @@
    :abbr       #{:title}
    :dfn        #{:title}})
 
-(def ^:no-doc url-attributes
-  "The attributes whose value is a URL, checked by scheme."
-  #{:href :src :cite})
+;; HTML Standard, "Index", the attributes whose value is a URL, with
+;; background and longdesc of older pages and xlink:href of SVG
+(def url-attributes
+  "The attributes whose value is a URL, which sanitize checks."
+  #{:action :background :cite :data :formaction :href :itemid :longdesc
+    :manifest :poster :src :xlink:href})
+
+(def url-list-attributes
+  "The attributes whose value is a list of URLs, which sanitize checks one
+  by one: ping and itemtype, separated by spaces, and srcset, separated by
+  commas, with a descriptor after each URL."
+  #{:itemtype :ping :srcset})
 
 (def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
 (defn- safe-url?
-  "Whether the URL `s` is relative, or has a scheme that a client can
-  follow, read as a browser reads it."
+  "Whether the URL `s` is absolute, with a scheme that a client can follow,
+  read as a browser reads it."
   [s]
-  (contains? #{nil "http" "https" "mailto"} (scheme s)))
+  (contains? #{"http" "https" "mailto"} (scheme s)))
+
+(defn- element?
+  "Whether `x` is a Hiccup element: a vector with a keyword tag."
+  [x]
+  (and (vector? x) (keyword? (nth x 0 nil))))
 
 (defn ^:no-doc parts
   "The tag, the attributes and the children of the Hiccup element `node`,
@@ -370,13 +392,43 @@
     [(node 0) (node 1) (subvec node 2)]
     [(node 0) {} (subvec node 1)]))
 
+(defn- checked-url
+  "The URL `s` as the function `url` gives it, when that's a URL that
+  safe-url? allows, or else nil."
+  [url s]
+  (when (string? s)
+    (let [u (url s)]
+      (when (and (string? u) (safe-url? u))
+        u))))
+
+(defn- checked-urls
+  "The list of URLs `s` of the attribute `k`, each one as checked-url gives
+  it with `url`, or nil when one isn't allowed."
+  [url k s]
+  (when (string? s)
+    (let [srcset?   (= :srcset k)
+          items     (->> (str/split s (if srcset? #"," #"[\t\n\f\r ]+"))
+                         (map trim-whitespace)
+                         (remove blank?))
+          candidate #"([^\t\n\f\r ]+)(.*)"
+          checked   (for [item items
+                          :let [[_ u more] (re-matches candidate item)]]
+                      (some-> (checked-url url u) (str more)))]
+      (when (and (seq checked) (every? some? checked))
+        (str/join (if srcset? ", " " ") checked)))))
+
 (defn- safe-attributes
   "The attributes `attrs` of an element `tag` that the table `allowed`
-  has, without a URL that a client can't follow."
-  [tag attrs allowed]
+  has, with each URL as checked-url gives it with `url`, and without one
+  that isn't allowed."
+  [tag attrs allowed url]
   (into {} (for [[k v] attrs
                  :when (contains? (get allowed tag) k)
-                 :when (or (not (url-attributes k)) (safe-url? v))]
+                 :let  [v (cond
+                            (url-attributes k)      (checked-url url v)
+                            (url-list-attributes k) (checked-urls url k v)
+                            :else                   v)]
+                 :when (some? v)]
              [k v])))
 
 (defn sanitize
@@ -385,24 +437,33 @@
 
   - the elements and attributes of allowed-tags and allowed-attributes
     are kept
-  - a URL is kept when it's http, https, mailto or relative
+  - a URL is kept when it's http, https or mailto, after the :url option
+    has rewritten it
   - the elements of dropped-tags are removed with their content
   - any other element is replaced by its children
   - lists and tables lose the whitespace of their layout
 
   The options :allowed-tags, :dropped-tags and :allowed-attributes take
-  the place of the vars of the same names."
+  the place of the vars of the same names. The :url option is a function
+  of a URL that gives the URL to keep, or nil, e.g. to make a relative URL
+  absolute against the page that the HTML came from. A client would
+  resolve it against its own page, so without :url it's left out.
+
+  Text in the result is decoded, e.g. &lt; is <, so render it with a
+  renderer that escapes text, such as Replicant, Reagent,
+  hiccup2.core/html or emit."
   ([nodes]
    (sanitize nodes {}))
   ([nodes opts]
-   {:pre [(map? opts)]}
-   (let [allowed    (:allowed-tags opts allowed-tags)
-         dropped    (:dropped-tags opts dropped-tags)
-         attributes (:allowed-attributes opts allowed-attributes)]
+   (let [allowed    (or (:allowed-tags opts) allowed-tags)
+         dropped    (or (:dropped-tags opts) dropped-tags)
+         attributes (or (:allowed-attributes opts) allowed-attributes)
+         url        (or (:url opts) identity)
+         layout?    #(and (string? %) (blank? %))]
      (letfn [(node [x]
                (cond
-                 (string? x)       [x]
-                 (not (vector? x)) []
+                 (string? x)        [x]
+                 (not (element? x)) []
                  :else
                  (let [[tag attrs children] (parts x)]
                    (if (dropped tag)
@@ -410,13 +471,15 @@
                      (let [kids (into []
                                       (comp (mapcat node)
                                             (if (structural-tags tag)
-                                              (remove #(and (string? %) (blank? %)))
+                                              (remove layout?)
                                               identity))
-                                      children)]
+                                      children)
+                           safe (safe-attributes tag attrs attributes url)]
                        (if (allowed tag)
-                         [(into [tag (safe-attributes tag attrs attributes)] kids)]
+                         [(into [tag safe] kids)]
                          kids))))))]
-       (apply list (into [] (mapcat node) nodes))))))
+       (let [nodes (if (element? nodes) [nodes] nodes)]
+         (apply list (into [] (mapcat node) nodes)))))))
 
 (defn- decoded
   "The text `s` with its character references decoded and every other
@@ -440,31 +503,36 @@
 (defn hiccup
   "The Hiccup that a client can render for the HTML or plain text `s`, as a
   sequence of nodes to put inside a parent element. HTML is parsed and
-  sanitized, and plain text becomes paragraphs with line breaks."
-  [s]
-  (let [s (str s)]
-    (if (re-find markup s)
-      (sanitize (parse s))
-      (paragraphs s))))
+  sanitized with the `opts` that sanitize takes, and plain text becomes
+  paragraphs with line breaks. Text in the result is decoded, so it needs
+  a renderer that escapes text, as sanitize says."
+  ([s]
+   (hiccup s {}))
+  ([s opts]
+   (let [s (str s)]
+     (if (markup? s)
+       (sanitize (parse s) opts)
+       (paragraphs s)))))
 
-(def ^:no-doc paragraph-tags
+(def paragraph-tags
   "Elements set off by a blank line in text and Markdown."
   #{:p :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :pre :ul :ol :dl :table :hr :figure})
 
-(def ^:no-doc line-tags
+(def line-tags
   "Elements that end a line in text and Markdown."
   #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot
     :section :article})
 
 (defn- nodes-of
   "The nodes of `x`, which is a string, a node or nodes. A string is parsed
-  when it holds markup, or read as paragraphs when it's plain text."
+  when it holds markup, or read as paragraphs when it's plain text, and
+  anything else is no nodes."
   [x]
   (cond
-    (string? x)             (if (re-find markup x) (parse x) (paragraphs x))
-    (and (vector? x)
-         (keyword? (first x))) [x]
-    :else                   x))
+    (string? x)     (if (markup? x) (parse x) (paragraphs x))
+    (element? x)    [x]
+    (sequential? x) x
+    :else           []))
 
 (defn- collapse
   "The text `s` with each run of ASCII whitespace as one space. Most text
@@ -491,12 +559,52 @@
                 i))]
     (str pre-mark (str/replace (subs s 0 end) "\n" (str "\n" pre-mark)))))
 
+(defn- controls?
+  "Whether the text `s` holds a control character but a tab or a line
+  feed. Few texts hold one, and a loop tells it faster than a regular
+  expression on the JVM."
+  [s]
+  #?(:clj  (let [^String s s
+                 n         (.length s)]
+             (loop [i 0]
+               (if (< i n)
+                 (let [c (int (.charAt s i))]
+                   (if (or (and (< c 32) (not (== c 9)) (not (== c 10)))
+                           (and (<= 127 c) (<= c 159)))
+                     true
+                     (recur (inc i))))
+                 false)))
+     :cljs (boolean (re-find #"[\x00-\x08\x0B-\x1F\x7F-\x9F]" s))))
+
+;; CSS Text 3, "White Space Processing & Control Characters": a browser
+;; shows a carriage return as a space, and other control characters but
+;; tabs and line feeds as boxes, if at all
+(defn- shown
+  "The text `s` with each carriage return as a space, and without the
+  other control characters but tabs and line feeds, which a terminal or a
+  notification could obey. A C1 control is mostly a character of
+  windows-1252 read as Latin-1, so it's that character where it has one,
+  as for a numeric reference in 13.2.5.84 of the HTML Standard."
+  [s]
+  (if (controls? s)
+    (-> (str/replace s "\r" " ")
+        (str/replace #"[\x80-\x9F]"
+                     #(if-let [x (get tokenizer/c1-replacements
+                                      (tokenizer/code (first %)))]
+                        (entities/code-point->string x)
+                        ""))
+        (str/replace #"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]" ""))
+    s))
+
 (defn- tidy
-  "The rendered `s`, trimmed, with each run of blank lines cut to one. Its
-  lines are trimmed too, except those of preformatted text."
+  "The rendered `s` as shown gives it, trimmed, with each run of blank
+  lines cut to one. Its lines are trimmed too, except those of
+  preformatted text."
   [s]
   (let [trim-line #(if (str/starts-with? % pre-mark) % (trim-whitespace %))
-        lines     (str/join "\n" (into [] (map trim-line) (str/split-lines s)))
+        lines     (->> (str/split-lines (shown s))
+                       (into [] (map trim-line))
+                       (str/join "\n"))
         text      (trim-whitespace (cond-> lines
                                      (str/includes? lines "\n\n\n")
                                      (str/replace #"\n{3,}" "\n\n")))]
@@ -514,25 +622,33 @@
 
   - :list is :ul or :ol inside a list
   - :index is a volatile that counts the list items
-  - :pre? is true inside a pre
+  - :pre, :code and :quotes count the pre, code and blockquote elements
+    that it's in, the element itself included
 
   The elements of dropped-tags render as nothing, as a browser shows no
-  script. Every line of a pre starts with pre-mark."
+  script. Every line of the outermost pre starts with pre-mark."
   [nodes inline element context]
-  (letfn [(node [x ctx]
+  (letfn [(node [x outer]
             (cond
-              (string? x)       (inline x ctx)
-              (not (vector? x)) ""
+              (string? x)        (inline x outer)
+              (not (element? x)) ""
               :else
-              (let [[tag attrs children] (parts x)]
+              (let [[tag attrs children] (parts x)
+                    counted              #(update %1 %2 (fnil inc 0))]
                 (if (dropped-tags tag)
                   ""
-                  (let [ctx   (cond-> ctx
-                                (#{:ul :ol} tag) (assoc :list tag :index (volatile! 0))
-                                (= :pre tag)      (assoc :pre? true))
+                  (let [ctx   (cond-> outer
+                                (#{:ul :ol} tag)
+                                (assoc :list tag :index (volatile! 0))
+
+                                (= :pre tag)        (counted :pre)
+                                (= :code tag)       (counted :code)
+                                (= :blockquote tag) (counted :quotes))
                         inner (str/join (into [] (map #(node % ctx)) children))]
                     (element [tag attrs]
-                             (if (= :pre tag) (marked-lines inner) inner)
+                             (if (and (= :pre tag) (not (:pre outer)))
+                               (marked-lines inner)
+                               inner)
                              ctx))))))]
     (tidy (str/join (into [] (map #(node % context)) nodes)))))
 
@@ -548,14 +664,18 @@
   `inner`, in the context `ctx` of render, with the URL of a link when
   `links?`."
   [links? [tag attrs] inner ctx]
-  (let [href   (:href attrs)
-        shown? (and links? href (not= (trim-whitespace inner) (str href)))]
+  (let [href   (when links?
+                 (some-> (:href attrs) str (str/replace #"[\t\n\r]" "")))
+        shown? (and href
+                    (safe-url? href)
+                    (not= (trim-whitespace inner) href))]
     (cond
       (= :br tag)          "\n"
       (= :hr tag)          "\n\n"
-      (= :img tag)         (str (:alt attrs))
+      (= :img tag)         (collapse (str (:alt attrs)))
       (= :a tag)           (if shown? (str inner " (" href ")") inner)
       (= :li tag)          (str (list-marker ctx) (trim-whitespace inner) "\n")
+      (< 1 (:pre ctx 0))   inner
       (paragraph-tags tag) (str "\n\n" inner "\n\n")
       (line-tags tag)      (str inner "\n")
       :else                inner)))
@@ -567,27 +687,169 @@
   - paragraphs are separated by a blank line
   - list items are on their own lines, with a marker
   - a link is its text, followed by its URL in parentheses when :links?
-  - an image is its alt text"
+    and the URL is http, https or mailto
+  - an image is its alt text
+  - a carriage return is a space, a C1 control is the character of
+    windows-1252 that it stands for, and other control characters are
+    left out, but for tabs and line breaks"
   ([x]
    (text x {}))
   ([x {:keys [links?] :as opts}]
    (render (nodes-of x)
-           (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
+           (fn [s ctx] (if (:pre ctx) s (collapse s)))
            (partial text-element links?)
            {})))
 
+;; CommonMark 0.31.2, section 2.4: a backslash escapes any ASCII
+;; punctuation. These start inline markup, with the | of tables and the ~
+;; of strikethrough in GitHub Flavored Markdown.
+(def ^:no-doc markdown-escapes
+  "The characters that markdown escapes in text, by character."
+  {\\ "\\\\" \` "\\`" \* "\\*" \_ "\\_" \[ "\\[" \] "\\]" \< "\\<" \> "\\>"
+   \| "\\|" \~ "\\~"})
+
+;; CommonMark 0.31.2, section 2.5
+(def ^:no-doc reference-start
+  "An ampersand that Markdown could read as the start of a character
+  reference."
+  #"&(?=#?[0-9A-Za-z]{1,32};)")
+
+;; CommonMark 0.31.2, sections 4.1 to 4.3 and 5.2
+(def ^:no-doc block-start
+  "What starts a heading, a thematic break or a list at the start of a
+  line, after the space in front: a # + = or -, or the digits of an
+  ordered list and the . or ) after them."
+  #"^([\t\n\f\r ]*)(?:([#+=-])|([0-9]{1,9})([.)]))")
+
+(defn- markdown-inline
+  "The text `s` with the characters of markdown-escapes and the start of a
+  character reference escaped, so that Markdown shows it as it is."
+  [s]
+  (cond-> (str/escape s markdown-escapes)
+    (str/includes? s "&") (str/replace reference-start (constantly "\\&"))))
+
+(defn- markdown-text
+  "The text `s` as markdown-inline escapes it, and with what would start a
+  block at the start of a line escaped too, since any text can start one."
+  [s]
+  (let [s    (markdown-inline s)
+        n    (count s)
+        lead (tokenizer/char-at s n (tokenizer/skip-whitespace s n 0))]
+    (if (and lead (or (tokenizer/digit? lead) (#{\# \+ \= \-} lead)))
+      (str/replace s
+                   block-start
+                   (fn [[_ space marker digits end]]
+                     (if marker
+                       (str space "\\" marker)
+                       (str space digits "\\" end))))
+      s)))
+
+;; CommonMark 0.31.2, section 6.3
+(defn- markdown-url
+  "The URL `s` as the destination of a Markdown link: without the tabs and
+  line breaks that a browser drops, with its spaces encoded, and with what
+  would end it or start an escape or a reference escaped."
+  [s]
+  (-> (str/replace s #"[\t\n\r]" "")
+      (str/replace " " "%20")
+      (str/escape {\\ "\\\\" \( "\\(" \) "\\)" \< "\\<" \> "\\>"})
+      (str/replace reference-start (constantly "\\&"))))
+
+(defn- backticks
+  "The backticks around the code `s` in a span or a fence: one more than
+  its longest run of them, and at least `n`."
+  [s n]
+  (let [longest (reduce max 0 (map count (re-seq #"`+" s)))]
+    (apply str (repeat (max n (inc longest)) "`"))))
+
+;; CommonMark 0.31.2, section 6.1: a span drops one space from each end
+;; when both ends have one
+(defn- code-span
+  "The code `s` as a Markdown code span, with a space inside each end when
+  it starts or ends with a backtick, or starts and ends with a space."
+  [s]
+  (let [ticks (backticks s 1)
+        pad   (if (or (str/starts-with? s "`")
+                      (str/ends-with? s "`")
+                      (and (str/starts-with? s " ") (str/ends-with? s " ")))
+                " "
+                "")]
+    (str ticks pad s pad ticks)))
+
+(def ^:no-doc emphasis
+  "The Markdown marks around the text of each element of emphasis."
+  {:strong "**" :b "**" :em "*" :i "*" :s "~~" :strike "~~" :del "~~"})
+
+;; CommonMark 0.31.2, section 2.1: the space separators of Unicode, and
+;; the tab, line feed, form feed and carriage return
+(defn- unicode-space?
+  "Whether the character `c` is Unicode whitespace."
+  [c]
+  (or (whitespace? c)
+      (contains? #{\u00A0 \u1680 \u202F \u205F \u3000} c)
+      (<= 0x2000 (tokenizer/code c) 0x200A)))
+
+;; CommonMark 0.31.2, sections 6.2 and 6.7: emphasis doesn't start or end
+;; at Unicode whitespace, and a hard line break at either end of a block
+;; is a backslash
+(defn- emphasized
+  "The Markdown `inner` with the `mark` of emphasis around it, inside the
+  Unicode whitespace and the line breaks at its ends."
+  [mark inner]
+  (let [n      (count inner)
+        at     #(tokenizer/char-at inner n %)
+        space? #(unicode-space? (at %))
+        break? #(and (identical? \\ (at %)) (identical? \newline (at (inc %))))
+        start  (loop [i 0]
+                 (cond
+                   (and (< i n) (space? i))       (recur (inc i))
+                   (and (< (inc i) n) (break? i)) (recur (+ i 2))
+                   :else                          i))
+        end    (loop [i n]
+                 (cond
+                   (and (< (inc start) i) (break? (- i 2))) (recur (- i 2))
+                   (and (< start i) (space? (dec i)))       (recur (dec i))
+                   :else                                    i))]
+    (if (= start end)
+      inner
+      (str (subs inner 0 start) mark (subs inner start end) mark
+           (subs inner end)))))
+
+(defn- block-text
+  "The Markdown `inner` of a block without the line breaks and the
+  whitespace at its ends."
+  [inner]
+  (trim-whitespace
+   (cond-> inner
+     (str/includes? inner "\\\n")
+     (-> (str/replace #"^(?:[\t\n\f\r ]*\\\n)+" "")
+         (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
+
 (defn- markdown-element
   "The Markdown of the element of `tag` and `attrs`, whose children render
-  as `inner`, in the context `ctx` of render."
+  as `inner`, in the context `ctx` of render.
+
+  An element inside a pre or a code element is its text, and a quote
+  deeper than 16 is a paragraph, so that no line carries a > for each of
+  hundreds of levels."
   [[tag attrs] inner ctx]
   (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))]
                   (parse-long n))
+        inside? (or (< (if (= :pre tag) 1 0) (:pre ctx 0))
+                    (< (if (= :code tag) 1 0) (:code ctx 0)))
         quoted  #(->> (str/split-lines %)
                       (map (fn [line] (str "> " line)))
                       (str/join "\n"))]
     (cond
+      inside?
+      (case tag
+        :br  "\n"
+        :img (collapse (str (:alt attrs)))
+        inner)
+
       heading
-      (str "\n\n" (apply str (repeat heading "#")) " " (trim-whitespace inner) "\n\n")
+      (str "\n\n" (apply str (repeat heading "#")) " "
+           (block-text inner) "\n\n")
 
       (= :br tag)
       "\\\n"
@@ -596,62 +858,80 @@
       "\n\n---\n\n"
 
       (= :img tag)
-      (str "![" (:alt attrs) "](" (:src attrs) ")")
+      (let [src (:src attrs)
+            alt (markdown-inline (collapse (str (:alt attrs))))]
+        (if (and (string? src) (safe-url? src))
+          (str "![" alt "](" (markdown-url src) ")")
+          alt))
 
       (= :a tag)
-      (if (:href attrs)
-        (str "[" inner "](" (:href attrs) ")")
-        inner)
+      (let [href (:href attrs)]
+        (if (and (string? href) (safe-url? href) (not (blank? inner)))
+          (str "[" inner "](" (markdown-url href) ")")
+          inner))
 
-      (#{:strong :b} tag)
-      (str "**" inner "**")
-
-      (#{:em :i} tag)
-      (str "*" inner "*")
-
-      (#{:s :strike :del} tag)
-      (str "~~" inner "~~")
+      (emphasis tag)
+      (emphasized (emphasis tag) inner)
 
       (= :code tag)
-      (if (:pre? ctx) inner (str "`" inner "`"))
+      (if (blank? inner) inner (code-span inner))
 
       (= :pre tag)
-      (str "\n\n```\n" (trim-whitespace inner) "\n```\n\n")
+      (let [code  (trim-whitespace inner)
+            fence (backticks code 3)]
+        (str "\n\n" fence "\n" code "\n" fence "\n\n"))
 
       (= :blockquote tag)
-      (str "\n\n" (quoted (trim-whitespace inner)) "\n\n")
+      (if (< 16 (:quotes ctx))
+        (str "\n\n" inner "\n\n")
+        (str "\n\n" (quoted (block-text inner)) "\n\n"))
 
       (= :li tag)
-      (str (list-marker ctx) (trim-whitespace inner) "\n")
+      (str (list-marker ctx) (block-text inner) "\n")
 
       (#{:td :th} tag)
-      (str (trim-whitespace inner) " | ")
+      (str (block-text inner) " | ")
 
       (= :tr tag)
       (str "| " inner "\n")
 
       (paragraph-tags tag)
-      (str "\n\n" inner "\n\n")
+      (str "\n\n" (block-text inner) "\n\n")
 
       (line-tags tag)
-      (str inner "\n")
+      (str (block-text inner) "\n")
 
       :else
       inner)))
 
 (defn markdown
-  "The HTML text or Hiccup `x` as Markdown. Text isn't escaped, so a
-  literal asterisk stays an asterisk. In the Markdown:
+  "The HTML text or Hiccup `x` as Markdown, which a Markdown renderer shows
+  as a browser shows the HTML. In the Markdown:
 
   - headings, emphasis, links, images, lists, quotes, code and rules take
     their Markdown forms
   - a line break becomes a backslash at the end of the line
+  - text is escaped where Markdown would read it as markup
+  - a link or an image is its text when its URL isn't http, https or
+    mailto
+  - control characters are left out as text leaves them out
   - everything else is its text"
   [x]
-  (render (nodes-of x)
-          (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
-          markdown-element
-          {}))
+  (let [md (render (nodes-of x)
+                   (fn [s ctx]
+                     (cond
+                       (:pre ctx)  s
+                       (:code ctx) (collapse s)
+                       :else       (markdown-text (collapse s))))
+                   markdown-element
+                   {})]
+    ;; two line breaks in a row, which Markdown has no way to write, as the
+    ;; end of a paragraph, and a line break before a block or at the end,
+    ;; outside any element
+    (cond-> md
+      (str/includes? md "\\")
+      (-> (str/replace #"(?<!\\)\\\n(?:\\\n)+" "\n\n")
+          (str/replace #"(?<!\\)\\(?=\n\n|$)" "")))))
 
 (def ^:no-doc text-escapes
   "The characters that text in HTML escapes, by character."
@@ -662,29 +942,53 @@
   character."
   (assoc text-escapes \" "&quot;"))
 
+;; HTML Standard, 13.1.2.3, attribute names, whose rule holds the names
+;; of elements to it as well
+(defn- html-name
+  "The name of the keyword or string `k` when HTML can write it as the
+  name of an element or an attribute, or else nil."
+  [k]
+  (when (or (keyword? k) (string? k))
+    (let [s (name k)]
+      (when-not (or (= "" s) (re-find #"[\x00-\x20\x7F-\x9F\"'/=>]" s))
+        s))))
+
 (defn- attributes-html
+  "The attributes `attrs` as HTML, without those whose name HTML can't
+  hold, or whose value is false or nil."
   [attrs]
-  (str/join (for [[k v] attrs]
+  (str/join (for [[k v] attrs
+                  :let  [n (html-name k)]
+                  :when (and n (some? v) (not (false? v)))]
               (if (true? v)
-                (str " " (name k))
-                (str " " (name k) "=\"" (str/escape (str v) value-escapes) "\"")))))
+                (str " " n)
+                (str " " n "=\"" (str/escape (str v) value-escapes) "\"")))))
 
 (defn emit
   "The Hiccup `nodes` as an HTML string, with the text escaped and the void
-  elements without end tags."
+  elements without end tags.
+
+  HTML or plain text in a string is made Hiccup by hiccup, and so
+  sanitized. Hiccup is written as it's given, except for a name that HTML
+  can't hold: such an attribute is left out, and such an element is
+  replaced by its children."
   [nodes]
   (letfn [(node [x]
             (cond
-              (string? x)       (str/escape x text-escapes)
-              (not (vector? x)) ""
+              (string? x)        (str/escape x text-escapes)
+              (not (element? x)) ""
               :else
               (let [[tag attrs children] (parts x)
-                    name  (name tag)
-                    start (str "<" name (attributes-html attrs) ">")]
-                (if (void-elements tag)
-                  start
-                  (str start (str/join (map node children)) "</" name ">")))))]
-    (str/join (map node (nodes-of nodes)))))
+                    inner #(str/join (map node children))]
+                (if-let [name (html-name tag)]
+                  (let [start (str "<" name (attributes-html attrs) ">")]
+                    (if (void-elements tag)
+                      start
+                      (str start (inner) "</" name ">")))
+                  (inner)))))]
+    (str/join (map node (if (string? nodes)
+                          (hiccup nodes)
+                          (nodes-of nodes))))))
 
 #?(:clj
    (comment

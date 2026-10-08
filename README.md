@@ -36,10 +36,22 @@ the browser.
 
 `hiccup` parses and sanitizes HTML, so the script and the `onclick` are
 gone, and it makes paragraphs of plain text, so you can give it any field.
-A Hiccup renderer takes the result as a fragment. For more control, call
-`parse` and `sanitize` yourself: `sanitize` takes your own tables of
-allowed tags and attributes. `text` puts the URL after each link with
-`{:links? true}`.
+A Hiccup renderer takes the result as a fragment. Its text is decoded, so
+use a renderer that escapes text, such as Replicant, Reagent,
+`hiccup2.core/html` or `emit`, and not the older `hiccup.core/html`.
+
+A relative URL is left out, since a browser would resolve it against your
+page rather than the one the HTML came from. To keep it, give `hiccup` a
+`:url` function that makes it absolute against that page. An image loads
+from its own server, which then knows who reads the notes and when, so to
+keep images from loading, leave `:src` out of the allowed attributes of
+`:img`.
+
+For more control, call `parse` and `sanitize` yourself: `sanitize` takes
+the same options as `hiccup`, including your own tables of allowed tags
+and attributes. `text` puts the URL after each link with
+`{:links? true}`, and `markdown` escapes whatever Markdown would read as
+markup.
 
 
 ## Design
@@ -51,7 +63,8 @@ allowed tags and attributes. `text` puts the URL after each link with
   pieces of HTML need. What it leaves out, e.g. the repairs of tables, SVG
   and MathML, has a TODO in the namespace docstrings.
 - **Safe by default.** `hiccup` keeps only the tags, attributes and URLs
-  that an app can render safely.
+  that an app can render safely. `text` and `markdown` leave out what a
+  terminal or a Markdown renderer would act on.
 - **The same everywhere.** One codebase runs on the JVM and in
   JavaScript, on Clojure 1.11 and Java 11 or later, with no other
   dependency than data.json while it compiles.

@@ -49,6 +49,15 @@
   (testing "text alone is text"
     (is (= ["just words"] (html/parse "just words")))
     (is (= [] (html/parse ""))))
+  (testing "a whole page, whose html, head and body stay as written"
+    (is (= [[:html {}
+             [:head {} [:title {} "Show"] [:link {:rel "alternate" :href "feed.xml"}]]
+             [:body {} [:p {} "x"]]]]
+           (html/parse (str "<!DOCTYPE html><html><head><title>Show</title>"
+                            "<link rel=alternate href=feed.xml></head>"
+                            "<body><p>x</body></html>"))))
+    (is (= [[:title {} "Show"] [:link {:rel "alternate" :href "feed.xml"}] [:p {} "x"]]
+           (html/parse "<title>Show</title><link rel=alternate href=feed.xml><p>x"))))
   (testing "the result is a sequence, which every Hiccup renderer takes as a fragment"
     (is (seq? (html/parse "<p>a</p><p>b</p>")))
     (is (seq? (html/hiccup "plain")))))
@@ -58,7 +67,7 @@
                    "<a href=\"https://ok/\" rel=\"nofollow\" class=\"c\">good</a> <a href=\"/relative\">rel</a></p> "
                    "<script>alert(1)</script><iframe src=\"x\"></iframe><font color=red>plain</font> "
                    "<ul>\n  <li>one</li>\n  <li>two</li>\n</ul><img src=\"data:image/png;base64,AAAA\" alt=\"pic\">")]
-    (is (= [[:p {} "Hi " [:a {} "bad"] " " [:a {:href "https://ok/" :rel "nofollow"} "good"] " " [:a {:href "/relative"} "rel"]]
+    (is (= [[:p {} "Hi " [:a {} "bad"] " " [:a {:href "https://ok/" :rel "nofollow"} "good"] " " [:a {} "rel"]]
             " " "plain" " "
             [:ul {} [:li {} "one"] [:li {} "two"]]
             [:img {:alt "pic"}]]
@@ -75,7 +84,37 @@
   (testing "javascript: behind the tabs, line breaks and control characters a browser drops"
     (doseq [href ["java&#9;script:alert(1)" "java&#10;script:alert(1)" "java&#x0D;script:alert(1)"
                   "&#1;javascript:alert(1)" " javascript:alert(1)" "java\tscript:alert(1)"]]
-      (is (= [[:a {} "x"]] (html/sanitize (html/parse (str "<a href=\"" href "\">x</a>")))) href))))
+      (is (= [[:a {} "x"]] (html/sanitize (html/parse (str "<a href=\"" href "\">x</a>")))) href)))
+  (testing "a relative URL, which a client would resolve against its own page"
+    (is (= [[:a {} "rel"] [:img {:alt "pic"}]]
+           (html/sanitize (html/parse "<a href=\"/rel\">rel</a><img src=\"/logout\" alt=\"pic\">"))))
+    (is (= [[:a {:href "https://show.example/rel"} "rel"]]
+           (html/sanitize (html/parse "<a href=\"/rel\">rel</a>")
+                          {:url #(str "https://show.example" %)})))
+    (is (= [[:a {} "x"]]
+           (html/sanitize (html/parse "<a href=\"https://ok/\">x</a>")
+                          {:url (constantly "javascript:alert(1)")}))
+        "what :url gives is checked too")
+    (is (= [[:a {} "x"] [:a {} "y"]]
+           (html/sanitize (html/parse (str "<a href=\"javascript&colon;alert(1)\">x</a>"
+                                           "<a href=\"java&Tab;script:alert(1)\">y</a>"))))
+        "a name of HTML5 that isn't decoded hides no scheme, since the URL is relative"))
+  (testing "the URLs of the attributes that a caller allows, and only as strings"
+    (let [allowed (assoc html/allowed-attributes :img #{:srcset} :a #{:ping})]
+      (is (= [[:img {:srcset "https://x/a.png 1x, https://x/b.png 2x"}]
+              [:img {}]
+              [:a {:ping "https://x/p https://y/q"} "x"]]
+             (html/sanitize (html/parse (str "<img srcset=\"https://x/a.png 1x, https://x/b.png 2x\">"
+                                             "<img srcset=\"https://x/a.png 1x, javascript:alert(1) 2x\">"
+                                             "<a ping=\"https://x/p https://y/q\">x</a>"))
+                            {:allowed-attributes allowed}))))
+    (is (= [[:a {} "y"] [:a {} "z"]]
+           (html/sanitize [[:a {:href (keyword "javascript:alert(1)")} "y"]
+                           [:a {:href ["javascript:alert(1)"]} "z"]]))))
+  (testing "Hiccup of any shape, and options of nil"
+    (is (= [[:p {}] "y"] (html/sanitize [[:p []] [nil] [1 "x"] "y"])))
+    (is (= [[:p {} "x"]] (html/sanitize [[:p "x"]] {:allowed-tags nil})))
+    (is (= [[:p {} "x"]] (html/sanitize [:p "x"])) "an element alone")))
 
 (deftest hostile-markup
   (testing "nesting stops at max-depth, so that no walk of the tree overflows the stack"
@@ -97,11 +136,31 @@
     (let [tag (str "<a " (apply str (map #(str "a" % "=\"b>\" ") (range 20000))) ">x</a>")]
       (is (= [20000 "b>"] ((juxt count :a19999) (second (first (html/parse tag))))))
       (is (= "x" (html/text tag)))
-      (is (= [[:a {} "x"]] (html/hiccup tag))))))
+      (is (= [[:a {} "x"]] (html/hiccup tag)))))
+  (testing "markup without an ampersand, comments and scripts, read in linear time"
+    (let [times #(apply str (repeat %1 %2))]
+      (is (= 100000 (count (html/parse (times 100000 "<b>x</b>")))))
+      (is (= [] (html/parse (str (times 100000 "<!--x-->") (times 100000 "<!--x--!>")))))
+      (is (= 40000 (count (html/parse (times 40000 "<script><!--</script>")))))
+      (is (= 100000 (count (html/parse (times 100000 "<title>x</title>")))))))
+  (testing "nested quotes and pres, rendered in linear time"
+    (let [quotes (str (apply str (repeat 128 "<blockquote>")) (apply str (repeat 1000 "<p>x")))
+          pres   (str (apply str (repeat 128 "<pre>")) (apply str (repeat 20000 "a\n")))]
+      (is (str/starts-with? (html/markdown quotes) (str (apply str (repeat 16 "> ")) "x\n")))
+      (is (str/starts-with? (html/text pres) "a\na\n"))
+      (is (str/starts-with? (html/markdown pres) "```\na\na\n")))))
+
+(deftest telling-html-from-plain-text
+  (is (every? html/markup? ["<p>Hi</p>" "a <!-- note -->" "a<br/>b" "x</b>"]))
+  (is (not-any? html/markup? ["Write to <show@example.com>" "I <3 it" "a < b > c" "" nil])))
 
 (deftest hiccup-for-a-client
   (testing "markup is parsed and sanitized"
     (is (= [[:p {} "Hi " [:b {} "there"]]] (html/hiccup "<p>Hi <b>there</b><script>x</script></p>"))))
+  (testing "with the options of sanitize"
+    (is (= [[:a {:href "https://x/" :class "mention"} "@ann"]]
+           (html/hiccup "<a href=\"https://x/\" class=\"mention\" id=\"m\">@ann</a>"
+                        {:allowed-attributes (update html/allowed-attributes :a conj :class)}))))
   (testing "plain text becomes paragraphs with breaks"
     (is (= [[:p {} "Line one" [:br {}] "line two"] [:p {} "Second & last"]]
            (html/hiccup "Line one\nline two\n\n\nSecond &amp; last\n")))
@@ -126,15 +185,49 @@
     (is (= "x" (html/text [:p "x"])) "hiccup without an attribute map")
     (let [nbsp (char 160)]
       (is (= (str "a" nbsp nbsp " b" nbsp) (html/text "<p>a&nbsp;&nbsp; b&nbsp;</p>"))
-          "a no-break space isn't whitespace that HTML collapses or trims, on either platform"))))
+          "a no-break space isn't whitespace that HTML collapses or trims, on either platform")))
+  (testing "no control characters that a terminal would obey"
+    (is (= "a[2Jb\n\nsafe evil" (html/text "<p>a&#27;[2Jb</p><pre>safe&#13;evil</pre>")))
+    (is (= (str "don" (char 0x2019) "t") (html/text (str "<p>don" (char 0x92) "t" (char 0x81) "</p>")))
+        "a C1 control is the character of windows-1252 that it stands for, if any")
+    (is (= "x w (https://x/y) a b"
+           (html/text "<a href=\"javascript:alert(1)\">x</a> <a href=\"https://x/&#10;y\">w</a> <img alt=\"a&#10;&#10;b\">"
+                      {:links? true}))
+        "nor in a URL or an alt text, and no URL that isn't http, https or mailto"))
+  (is (= "" (html/text [[:p []] [nil] [1 "x"]])) "Hiccup of any shape"))
 
 (deftest rendering-markdown
-  (is (= "## Notes\n\nHello **world** and *you*, [link](https://x/)\\\nnext line.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\\\n> lines\n\n---\n\n```\ncode block\n```\n\n![art](a.png) `x`"
+  (is (= "## Notes\n\nHello **world** and *you*, [link](https://x/)\\\nnext line.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\\\n> lines\n\n---\n\n```\ncode block\n```\n\n![art](https://x/a.png) `x`"
          (html/markdown "<h2>Notes</h2><p>Hello <strong>world</strong> and <em>you</em>, <a href=\"https://x/\">link</a><br>next line.</p>
                          <ul><li>one</li><li>two</li></ul><ol><li>first</li><li>second</li></ol>
-                         <blockquote>quoted<br>lines</blockquote><hr><pre>code block</pre><p><img src=\"a.png\" alt=\"art\"> <code>x</code></p>")))
+                         <blockquote>quoted<br>lines</blockquote><hr><pre>code block</pre><p><img src=\"https://x/a.png\" alt=\"art\"> <code>x</code></p>")))
   (is (= "```\n  indented\n    more\n```\n\nafter" (html/markdown "<pre>  indented\n    more\n</pre><p>after</p>"))
-      "a pre keeps its indentation"))
+      "a pre keeps its indentation")
+  (testing "a link or an image whose URL isn't http, https or mailto is its text"
+    (is (= "x ![y](https://x/a.png) y z"
+           (html/markdown (str "<a href=\"javascript:alert(1)\">x</a> <img src=\"https://x/a.png\" alt=\"y\"> "
+                               "<img src=\"data:text/html,x\" alt=\"y\"> <a href=\"/rel\">z</a>")))))
+  (testing "text, which Markdown shows as it is"
+    (is (= "\\<img src=x onerror=alert(1)\\> and \\[y\\](javascript:alert(2)) 5\\*3\\*2 \\&colon; a\\_b \\~x\\~ \\|"
+           (html/markdown "<p>&lt;img src=x onerror=alert(1)&gt; and [y](javascript:alert(2)) 5*3*2 &amp;colon; a_b ~x~ |</p>")))
+    (is (= "\\# not a heading\n\n1\\. not a list\n\n\\- nor this\n\n- \\# x"
+           (html/markdown "<p># not a heading</p><p>1. not a list</p><p>- nor this</p><ul><li># x</li></ul>"))))
+  (testing "a URL, a link text or an alt text that can't end its link"
+    (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
+                "[x\\](javascript:alert(1)) \\[y](https://a.example/) "
+                "![\\](javascript:alert(1))\\[click](https://ok/a.png) "
+                "[e](https://x/?a=1\\&colon;b%20c)")
+           (html/markdown (str "<a href=\"https://ok/)[z](javascript:alert(3)\">t</a> "
+                               "<a href=\"https://a.example/\">x](javascript:alert(1)) [y</a> "
+                               "<img src=\"https://ok/a.png\" alt=\"](javascript:alert(1))[click\"> "
+                               "<a href=\"https://x/?a=1&amp;colon;b c\">e</a>")))))
+  (testing "line breaks and spaces at the ends of blocks and emphasis"
+    (is (= "**Credits:**\\\nHosts **spaced** end\n\na\n\nb"
+           (html/markdown "<p><strong>Credits:<br></strong>Hosts<b> spaced </b>end<br></p><p>a<br><br>b</p>"))))
+  (testing "code with backticks, and emphasis without text"
+    (is (= "``` `` ```x\n\n````\na\n```\n# not code\n````\n\n```\nx y\n```"
+           (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
+  (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape"))
 
 (deftest emitting-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
@@ -142,4 +235,12 @@
   (testing "sanitized Hiccup survives a trip through HTML"
     (let [nodes (html/sanitize (html/parse "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>"))]
       (is (= nodes (html/parse (html/emit nodes))))))
-  (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map"))
+  (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map")
+  (is (= "<p>a</p>" (html/emit "<p onclick=\"x()\">a</p><script>s()</script>"))
+      "HTML in a string, which is sanitized")
+  (is (= "<p title=\"t\">x</p>c<input><p></p>"
+         (html/emit [[:p {(keyword "onmouseover=alert(1) x") "y" :title "t"} "x"]
+                     [(keyword "a b") "c"]
+                     [:input {:disabled false :value nil}]
+                     [:p []] [nil] 1]))
+      "names that HTML can't hold, false and nil, and Hiccup of any shape"))

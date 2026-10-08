@@ -60,11 +60,13 @@
      each name that the table keeps: the name without its ampersand, a
      space, and the code points in hexadecimal, separated by commas."
      []
-     (let [entries (json/read-str (slurp (io/resource "dk/simongray/html_pieces/entities.json")))
+     (let [file    (io/resource "dk/simongray/html_pieces/entities.json")
+           entries (json/read-str (slurp file))
            bare    #(str/replace (subs % 1) #";$" "")
-           kept    (into (conj html-4-names "apos")
-                         (comp (map key) (remove #(str/ends-with? % ";")) (map bare))
-                         entries)]
+           legacy  (comp (map key)
+                         (remove #(str/ends-with? % ";"))
+                         (map bare))
+           kept    (into (conj html-4-names "apos") legacy entries)]
        (->> entries
             (filter #(kept (bare (key %))))
             (sort-by key)
