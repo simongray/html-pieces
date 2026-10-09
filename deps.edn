@@ -18,4 +18,24 @@
   :cljs {:extra-paths   ["test"]
          :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
          :extra-deps    {thheller/shadow-cljs {:mvn/version "3.5.3"}}
-         :main-opts     ["-m" "shadow.cljs.devtools.cli"]}}}
+         :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
+
+  ;; clojure -X:bench  (after npm install, for Node and the bundles).
+  ;; clj-tagsoup asks for a data.xml that doesn't compile on Clojure 1.9+.
+  :bench {:extra-paths   ["bench"]
+          :override-deps {org.clojure/clojure  {:mvn/version "1.12.5"}
+                          org.clojure/data.xml {:mvn/version "0.0.8"}}
+          :extra-deps
+          {thheller/shadow-cljs            {:mvn/version "3.5.3"}
+           org.clj-commons/hickory         {:mvn/version "0.7.7"}
+           clj-tagsoup/clj-tagsoup         {:mvn/version "0.3.0"}
+           org.jsoup/jsoup                 {:mvn/version "1.23.2"}
+           hiccup/hiccup                   {:mvn/version "2.0.0"}
+           io.github.escherize/huff        {:mvn/version "0.2.21"}
+           no.cjohansen/replicant          {:mvn/version "2026.07.1"}
+           io.github.furstenheim/copy_down {:mvn/version "1.1"}
+           com.vladsch.flexmark/flexmark-html2md-converter
+           {:mvn/version "0.64.8"}
+           com.googlecode.owasp-java-html-sanitizer/owasp-java-html-sanitizer
+           {:mvn/version "20260924.2"}}
+          :exec-fn       dk.simongray.html-pieces.bench/run}}}

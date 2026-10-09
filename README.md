@@ -143,9 +143,16 @@ Development
 
 ```bash
 clojure -X:test               # the tests on the JVM
-npm install                   # once, for the Node tests
+npm install                   # once, for the Node tests and benchmarks
 clojure -M:cljs compile test  # the tests in Node
+clojure -X:bench              # the benchmarks against other libraries
 ```
+
+The benchmarks compare html-pieces with libraries that do the same
+things on the JVM, in Node and in the browser: the time and the memory of
+each call, and the size of a bundle. They take a few minutes, and print
+a report that's also kept in `target/bench/`. To run some of them, pass
+e.g. `:only '#{:jvm}'`, `:areas '#{:parse}'` or `:timing :quick`.
 
 The tests run the tokenizer tests of
 [html5lib-tests](https://github.com/html5lib/html5lib-tests) when they're

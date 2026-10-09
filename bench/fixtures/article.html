@@ -1,0 +1,156 @@
+<article>
+<h1>Keeping Old Broadcasts Alive: Notes From a Small Archive</h1>
+<p class="byline">By <a href="https://example.com/authors/mira">Mira Lindqvist</a> &middot; <time datetime="2026-03-14">14 March 2026</time> &middot; 18 min read</p>
+
+<p>When the regional station in our town closed in 2019, it left behind a basement of tapes. Some were reel-to-reel, some were cassettes with handwritten labels, and a few hundred were <abbr title="Digital Audio Tape">DAT</abbr> cartridges that nobody had a working deck for. This is the story of the six years we spent turning that basement into something people can actually listen to, and what we learned about formats, metadata and the people who still care.
+
+<p>It isn't a guide. There are better guides, and I link to several of them at the end. It's more of a field report, with the mistakes left in.</p>
+
+<h2 id="inventory">1. The inventory</h2>
+<p>The first job was simply knowing what we had. We started with a spreadsheet, which lasted about a week. By the second week we had a database with four tables, and by the end of the first month we had a <em>schema</em>, which is how you know a hobby has become a project.</p>
+<p>Every item got a record with these fields:</p>
+<dl>
+  <dt>Identifier</dt><dd>A running number, painted on the box with a paint pen, because labels fall off.</dd>
+  <dt>Format</dt><dd>One of reel, cassette, DAT, MiniDisc, CD-R or &ldquo;unknown&rdquo;.</dd>
+  <dt>Condition</dt><dd>Good, fair, poor, or <q>do not touch</q>.</dd>
+  <dt>Label text</dt><dd>Transcribed exactly, misspellings and all.</dd>
+  <dt>Date</dt><dd>When we could work it out. Often we couldn't.</dd>
+</dl>
+<p>By the end we had 4&#8239;812 items. Roughly 61% were reels, 27% cassettes, 9% DAT and the rest a mix of everything else. The oldest reel we could date was from 1958; the newest CD-R from the week the station closed.</p>
+
+<h2 id="formats">2. Formats, and why they fight back</h2>
+<p>Each format had its own problems, and they were rarely the problems we expected.</p>
+
+<h3>Reels</h3>
+<p>Reel tape from the 1970s and 80s often suffers from <strong>sticky-shed syndrome</strong>: the binder that holds the magnetic particles absorbs moisture and turns gummy. Play it as it is and it sheds onto the heads, squeals, and can be ruined in a single pass. The accepted fix is to <em>bake</em> the tape at a low temperature for several hours, which drives the moisture out for long enough to make one good transfer.</p>
+<p>We built a baking cabinet out of a food dehydrator and a thermostat. It worked, mostly. The rule we settled on:</p>
+<ol>
+  <li>Test a short leader section first, never the programme itself.</li>
+  <li>Bake at 50&deg;C for eight hours, then let it cool for a day.</li>
+  <li>Transfer within a week. The effect wears off.
+    <ol type="a">
+      <li>Clean the heads after every reel.</li>
+      <li>Keep a log of which reels were baked and when.</li>
+    </ol>
+  </li>
+  <li>Never bake acetate-based tape. It doesn't have the problem, and heat makes it brittle.</li>
+</ol>
+
+<h3>Cassettes</h3>
+<p>Cassettes were easier in one way and harder in another. The tape itself was usually fine, but the shells were not: pressure pads had fallen off, and the little foam pieces had turned to dust. We rehoused about 300 cassettes into new shells, which is fiddly work that is best done with music on and a steady hand.</p>
+
+<h3>DAT</h3>
+<p>DAT was the real trouble. The format was a professional standard for a decade and then vanished, and working decks are scarce. We eventually found two on an auction site, one of which arrived with a cracked drum. The other has done all 438 cartridges, and we treat it with the reverence of an elderly relative.</p>
+<blockquote>
+  <p>If you have a working DAT deck in a cupboard, please don't throw it away. Somebody, somewhere, needs it more than you think.</p>
+</blockquote>
+
+<h2 id="transfer">3. The transfer chain</h2>
+<p>Our chain ended up being simple: deck, an analogue-to-digital converter, and a laptop. We record at 96&nbsp;kHz and 24 bits for analogue sources, and at the native rate for digital ones. Each transfer produces a preservation master in <code>WAV</code> or <code>FLAC</code>, and an access copy in a compressed format for streaming.</p>
+<p>The naming scheme matters more than you would think. After two rewrites, we settled on this:</p>
+<pre><code>archive/
+  reel/
+    0001/
+      0001_master.flac
+      0001_access.mp3
+      0001_label.jpg
+      0001.json
+  cassette/
+    2207/
+      2207_side-a_master.flac
+      2207_side-b_master.flac
+</code></pre>
+<p>Every item has a <code>.json</code> sidecar with the metadata, so that nothing depends on the database surviving. A minimal one looks like this:</p>
+<pre><code>{
+  "id": "0001",
+  "format": "reel",
+  "label": "Morgenradio 12/6 &lt;dub&gt;",
+  "date": "1974-06-12",
+  "baked": true,
+  "duration_seconds": 1834
+}</code></pre>
+<p>Note the escaped angle brackets in the label: the original said <code>&lt;dub&gt;</code>, which we kept, because we keep everything.</p>
+
+<h2 id="metadata">4. Metadata is the archive</h2>
+<p>The audio is what people want, but the metadata is what lets them find it. Most of our hours went into listening to the first and last minute of each recording, writing down who was speaking, and matching it against old programme schedules from the town library.</p>
+<p>The schedules were a goldmine. They were printed weekly in the local paper, and the library had them on microfilm. Matching a tape to a schedule entry usually gave us:</p>
+<ul>
+  <li>the programme title,</li>
+  <li>the presenter, and sometimes guests,</li>
+  <li>the exact date and time of broadcast, and</li>
+  <li>a short description, written by someone at the station in a hurry.</li>
+</ul>
+<p>We matched 72% of the reels this way. For the rest, we relied on voices, on mentions of events (<q>the new bridge opens on Saturday</q> is a surprisingly precise date), and on the patience of volunteers who grew up listening.</p>
+
+<figure>
+  <img src="https://example.com/archive/schedule-1974.jpg" alt="A programme schedule from June 1974, printed in two narrow columns" width="800" height="1100" loading="lazy">
+  <figcaption>The schedule for the week of 10 June 1974, from the library's microfilm.</figcaption>
+</figure>
+
+<h2 id="people">5. The people</h2>
+<p>We put out a call for volunteers in the paper, expecting a handful. Forty-one people came to the first meeting. Some had worked at the station, some had grown up with it, and a few just liked old machines. Over six years, they logged more than 9&#8239;000 hours.</p>
+<p>A few of them deserve a special mention:</p>
+<ul>
+  <li><b>Henrik</b>, a retired engineer who rebuilt both reel decks and taught the rest of us to align heads.</li>
+  <li><b>Sofie</b>, who identified more voices than anyone and who could date a recording by the jingles alone.</li>
+  <li><b>Aleksander</b>, aged 15 when he started, who wrote the scripts that check every master against its checksum each night.</li>
+</ul>
+<p>Without them, this would still be a basement.</p>
+
+<h2 id="rights">6. Rights, and the long tail of permission</h2>
+<p>Owning a tape is not the same as owning what's on it. The station's broadcasts belonged to the station, whose rights passed to the regional broadcaster when it closed, and the broadcaster was generous: they gave us a licence to make the archive public for non-commercial use. Music was a different matter. Any programme with commercial recordings in it is listenable in the reading room only, and we cut the music from the online access copies.</p>
+<p>Interviews were the hardest. Strictly, the people interviewed have rights too. We publish them, and we take down any recording on request, which has happened three times in six years<sup><a href="#fn1" id="ref1">1</a></sup>.</p>
+
+<h2 id="numbers">7. Some numbers</h2>
+<table>
+  <caption>Transfers by format, 2020&ndash;2026</caption>
+  <thead>
+    <tr><th scope="col">Format</th><th scope="col">Items</th><th scope="col">Hours</th><th scope="col">Failed</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Reel</td><td>2&#8239;934</td><td>2&#8239;201</td><td>48</td></tr>
+    <tr><td>Cassette</td><td>1&#8239;299</td><td>1&#8239;012</td><td>11</td></tr>
+    <tr><td>DAT</td><td>438</td><td>596</td><td>23</td></tr>
+    <tr><td>MiniDisc</td><td>71</td><td>58</td><td>0</td></tr>
+    <tr><td>CD-R</td><td>66</td><td>49</td><td>9</td></tr>
+    <tr><td>Unknown</td><td>4</td><td>&ndash;</td><td>4</td></tr>
+  </tbody>
+  <tfoot>
+    <tr><td>Total</td><td>4&#8239;812</td><td>3&#8239;916</td><td>95</td></tr>
+  </tfoot>
+</table>
+<p>The failures are mostly reels that were too far gone, and CD-Rs whose dye had faded. Nobody warns you that the newest format in the room can be the least durable.</p>
+
+<h2 id="lessons">8. What we'd do differently</h2>
+<ol>
+  <li><strong>Start the database on day one.</strong> Every week in the spreadsheet cost us a month later.</li>
+  <li><strong>Photograph everything before touching it.</strong> Labels fall off, boxes get swapped, and the photo is the only evidence.</li>
+  <li><strong>Write the sidecar files first</strong>, and treat the database as an index of them, not the other way round.</li>
+  <li><strong>Budget for the deck, not the tape.</strong> Tape is plentiful. Machines that play it are not.</li>
+  <li><strong>Ask for help sooner.</strong> We waited a year before calling for volunteers, because we thought nobody would come.</li>
+</ol>
+
+<h2 id="listen">9. Listening</h2>
+<p>The archive is online at <a href="https://example.com/archive">example.com/archive</a>. You can browse by year, by programme or by presenter, or search the transcripts, which we made with a speech recogniser and corrected by hand where we could. The reading room in the library has everything, including the programmes with music, on Wednesdays and Saturdays.</p>
+<p>If you'd like to help, we still have 700 hours that nobody has listened to properly. Write to <a href="mailto:archive@example.com">archive@example.com</a>, or just turn up on a Wednesday.</p>
+
+<form action="https://example.com/newsletter" method="post">
+  <label>Get the newsletter: <input type="email" name="email" placeholder="you@example.com"></label>
+  <button type="submit">Subscribe</button>
+</form>
+
+<h2 id="further">Further reading</h2>
+<ul>
+  <li><a href="https://example.com/guides/tape-care">A practical guide to tape care</a>, which taught us to bake.</li>
+  <li><a href="https://example.com/guides/metadata">Describing audio collections</a>, for the metadata fields.</li>
+  <li><a href="https://example.com/forum/dat">The DAT owners' forum</a>, where we found our deck.</li>
+  <li><a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">An odd link someone pasted in</a>.</li>
+</ul>
+
+<hr>
+<p id="fn1"><small><sup>1</sup> Two were families of people who had died, who preferred that the recordings be heard only in the reading room. The third was a man who had said something rude about a mayor in 1981, and still regretted it. <a href="#ref1">Back</a></small></p>
+
+<p><i>Thanks to the library, the broadcaster, and to everyone who came down to the basement. <b>Especially <i>Henrik</b></i>, whose decks are still running.</p>
+<script>window.analytics && window.analytics.page()</script>
+<noscript><img src="https://tracker.example.com/pixel.gif" alt=""></noscript>
+</article>
