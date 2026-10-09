@@ -83,7 +83,7 @@
   #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot
     :section :article})
 
-(def max-quotes
+(def max-quote-depth
   "How deep quotes nest in Markdown at most. A deeper quote is a plain
   paragraph, so that no line starts with hundreds of >."
   16)
@@ -106,7 +106,7 @@
    :url-fn              identity
    :paragraph-tags      paragraph-tags
    :line-tags           line-tags
-   :max-quotes          max-quotes
+   :max-quote-depth     max-quote-depth
    :links?              false
    :quirks?             true})
 

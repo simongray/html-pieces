@@ -242,7 +242,7 @@
                          :url-attributes     #{:data-src}})))
     (is (= "a\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags #{} :line-tags #{:p}})))
     (is (= "x (ftp://x/)" (html/text "<a href=\"ftp://x/\">x</a>" {:links? true :allowed-schemes #{"ftp"}})))
-    (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quotes 1})))
+    (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quote-depth 1})))
     (is (= "<a href=\"https://s.example/x\">x</a>" (html/sanitize "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)}))))
   (testing "the repair that the HTML Standard doesn't make, switched off"
     (is (= "dont" (html/text (str "<p>don" (char 0x92) "t</p>") {:quirks? false}))))

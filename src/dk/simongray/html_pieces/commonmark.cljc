@@ -196,7 +196,7 @@
         (str "\n\n" fence "\n" code "\n" fence "\n\n"))
 
       (= :blockquote tag)
-      (if (< (:max-quotes ctx) (:quotes ctx))
+      (if (< (:max-quote-depth ctx) (:quotes ctx))
         (str "\n\n" inner "\n\n")
         (str "\n\n" (quoted (block-text inner)) "\n\n"))
 
