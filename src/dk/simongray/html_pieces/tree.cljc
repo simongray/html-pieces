@@ -3,9 +3,6 @@
   tree construction in 13.2.6 of the HTML Standard that such pieces need,
   or from plain text as paragraphs.
 
-  An element is a vector of a keyword tag, a map of keyword attributes and
-  its children, and text is a string.
-
   TODO: the rules of tree construction that a browser follows and this
   leaves out, by an option or a namespace of their own: formatting that a
   browser carries on past a misnested end tag, the repairs of tables, and
@@ -77,10 +74,11 @@
 
 (defn merge-text
   "The element `node` with each run of adjacent strings among its children
-  joined into one. Only a comment or a stray end tag between two texts
-  leaves such a run, so most elements come back as they are."
+  joined into one."
   [node]
   (let [text? #(string? (nth node %))
+        ;; only a comment or a stray end tag between two texts leaves a
+        ;; run, so most elements are returned as they are
         runs? (loop [i 3]
                 (cond
                   (<= (count node) i)             false
@@ -233,8 +231,7 @@
 
 (defn build
   "The Hiccup nodes that the HTML `tokens` build, nested at most
-  `max-depth` deep. A token is a string of text, or a map of a start tag,
-  an end tag or a comment, as the tokenizer of the HTML Standard gives it."
+  `max-depth` deep."
   [tokens max-depth]
   (let [builder (transient {:stack     (transient [(transient [:root {}])])
                             :open      (transient {})

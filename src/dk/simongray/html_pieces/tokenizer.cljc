@@ -1,24 +1,6 @@
 (ns dk.simongray.html-pieces.tokenizer
   "HTML text as tokens, by the tokenizer of the HTML Standard, section
-  13.2.5, as of 2026-10-08.
-
-  The tokens function gives the tokens of a text. Characters come as
-  strings, with adjacent runs joined and character references decoded.
-  Every other token is a map with a :type:
-
-      {:type :start-tag :name \"a\" :attrs {\"href\" \"/\"}
-       :self-closing? false}
-      {:type :end-tag :name \"a\"}
-      {:type :comment :data \" a note \"}
-      {:type :doctype}
-
-  As in the standard, a token that the end of the text cuts off is
-  dropped. The tokenizer reports no parse errors.
-
-  In the standard, the tree builder switches the tokenizer to raw text
-  after a start tag such as script or title. Here the :text-states option
-  does it, so that the tokens of HTML content come out right without a
-  tree builder.
+  13.2.5, as of 2026-10-08, but without parse errors.
 
   The tokenizer is for HTML embedded in other content, so it leaves out
   what only whole documents and SVG or MathML need. Each part ends where
@@ -223,10 +205,10 @@
     (if (neg? k) n k)))
 
 (defn ^:no-doc searcher
-  "A function like index-of for the text `s` of length `n`, of a string and
-  an index. It keeps the index that it found for each string, and gives it
-  again until the reading passes it. The readers only move forward, so a
-  string that isn't there is searched for once, not by every reader."
+  "A function of a string and an index that gives the index of the first
+  such string from there in the text `s` of length `n`, or `n`. Each index
+  is kept until the reading passes it, so a string that isn't there is
+  searched for once."
   [s n]
   (let [found (volatile! {})]
     (fn [x i]
@@ -374,13 +356,9 @@
 
 (defn ^:no-doc data-text
   "Read the data state, 13.2.5.1, from `i` onto the builder `text`, as
-  [index token state]: up to a less-than sign, after which the markup
-  state reads what it starts, or the end.
-
-  The text runs to the next less-than sign, which indexOf finds, or the
-  next ampersand, which the searcher `search` finds. Each index is kept
-  until the reading passes it, so that a text with many of one and none of
-  the other is still read in linear time."
+  [index token state]: up to a less-than sign or the end. The next
+  less-than sign and the next ampersand, which `search` finds, are each
+  kept until the reading passes them, so the text is read in linear time."
   [s n i text search]
   (loop [i i lt (index-of s n "<" i) amp (long (search "&" i))]
     (let [stop (min lt amp)]
@@ -432,11 +410,8 @@
   "Read the RCDATA state, 13.2.5.2, when `rcdata?`, or else the RAWTEXT
   state, 13.2.5.3, from `i` onto the builder `text`, with their less-than
   sign and end tag states, 13.2.5.9 to 13.2.5.14, as [index token state]:
-  up to an appropriate end tag for `last-start-tag`, or the end.
-
-  As in data-text, indexOf finds the less-than signs and, in RCDATA, the
-  searcher `search` finds the ampersands, each kept until the reading
-  passes it."
+  up to an appropriate end tag for `last-start-tag`, or the end. In RCDATA,
+  `search` finds the ampersands."
   [s n i text last-start-tag rcdata? search]
   (loop [i   i
          lt  (index-of s n "<" i)
@@ -464,21 +439,18 @@
 
 (defn ^:no-doc script-text
   "Read the script data state, 13.2.5.4, from `i` onto the builder `text`,
-  as [index token state], like raw-text.
+  as [index token state]: up to an appropriate end tag for `last-start-tag`
+  outside a double escape, or the end.
 
   The states of escapes, 13.2.5.15 to 13.2.5.31, keep every character as
-  text, so they only decide where a script ends: at the first appropriate
-  end tag for `last-start-tag` outside a double escape. So the script is
-  read by searches for what changes the mode rather than a state for each
-  character, which the tests of html5lib show to be the same:
+  text, so the script is read by searches for what changes the mode, with
+  `search` for each -->, rather than by a state for each character:
 
   - in a script, <!-- starts an escape, whose dashes can end it at once
   - in an escape, --> ends it, and <script followed by a space, / or >
     starts a double escape
   - in a double escape, --> ends both escapes, and </script followed by a
-    space, / or > ends the double one
-
-  The searcher `search` finds each -->."
+    space, / or > ends the double one"
   [s n i text last-start-tag search]
   (let [closing     (fn [k]
                       (let [[kind j name] (end-tag-at s n k last-start-tag)]
@@ -561,15 +533,10 @@
 
 (defn ^:no-doc attribute
   "Read the attribute whose name starts at `i`, as [index [name value]], or
-  nil when the end of the text cuts it off.
-
-  These are the states from the attribute name state, 13.2.5.33, to the
-  after attribute value state, 13.2.5.39. The name runs to whitespace, /,
-  > or =, though = can be its first character. Whitespace can come on
-  either side of the = before a value. A value in quotes runs to its
-  quote, and one without them to whitespace or >. Without a value, the
-  value is the empty string."
+  nil when the end of the text cuts it off, by the states of 13.2.5.33 to
+  13.2.5.39."
   [s n i]
+  ;; an = can be the first character of the name, 13.2.5.32
   (let [name-end (run-end s n (if (identical? \= (char-at s n i)) (inc i) i)
                           attribute-name-end?)
         name     (tag-name (subs s i name-end))
@@ -611,12 +578,8 @@
   "Read the tag whose name starts at `i`, a start tag or, when `end?`, an
   end tag, as [index token]. The `name` is the part of the name that a
   state of raw text read already, or nil. The token is nil when the end of
-  the text cuts the tag off.
-
-  These are the tag name state, 13.2.5.8, and the states of attributes,
-  13.2.5.32 to 13.2.5.40. Between attributes, whitespace is skipped, > ends
-  the tag, and so does /> with the self-closing flag, while a / before
-  anything else is dropped. An attribute that repeats a name is dropped."
+  the text cuts the tag off. These are the tag name state, 13.2.5.8, and
+  the states of attributes, 13.2.5.32 to 13.2.5.40."
   [s n i end? name]
   (let [j    (run-end s n i tag-end?)
         name (str name (tag-name (subs s i j)))]
@@ -661,14 +624,10 @@
     :else                       data))
 
 (defn ^:no-doc comment-text
-  "Read a comment after its <!--, as [index token].
-
-  The comment states, 13.2.5.43 to 13.2.5.52, end a comment at once with >
-  or ->, or else at the first --> or --!>, and keep every other character
-  as data. So the comment is found by those searches, which the searcher
-  `search` makes, rather than a state for each character, which the tests
-  of html5lib show to be the same. A comment that the end of the text cuts
-  off ends there."
+  "Read a comment after its <!--, as [index token]. The comment states,
+  13.2.5.43 to 13.2.5.52, end a comment at once with > or ->, or else at
+  the first --> or --!>, so it's read by `search` for those rather than by
+  a state for each character."
   [s n i search]
   (let [c (char-at s n i)]
     (if (or (identical? \> c)
@@ -719,9 +678,7 @@
 (defn ^:no-doc markup
   "Read what a less-than sign starts, from `i` after it, as [index token
   state], by the tag open state, 13.2.5.6, with the searcher `search`: a
-  tag, a comment or a DOCTYPE, or else the less-than sign as text. <?
-  starts a bogus comment, as it did before the processing instructions of
-  13.2.5.72."
+  tag, a comment or a DOCTYPE, or else the less-than sign as text."
   [s n i search]
   (let [c (char-at s n i)]
     (cond
@@ -748,7 +705,18 @@
 ;; validator of HTML, not a reader of embedded HTML.
 
 (defn tokens
-  "The tokens of the HTML text `s`, as a vector, read with the `opts`:
+  "The tokens of the HTML text `s`, as a vector, read with the `opts` below.
+
+  Text comes as strings, with adjacent runs joined and character references
+  decoded. Every other token is a map, e.g.
+
+      {:type :start-tag :name \"a\" :attrs {\"href\" \"/\"}
+       :self-closing? false}
+      {:type :end-tag :name \"a\"}
+      {:type :comment :data \" a note \"}
+      {:type :doctype}
+
+  The options are:
 
   - :state, the state to start in: :data, the default, :rcdata, :rawtext,
     :script-data or :plaintext

@@ -2,19 +2,7 @@
   "Embedded pieces of HTML, such as comments, the descriptions in feeds or
   the fields of a CMS, read into Hiccup and rendered from there.
 
-  A parse gives a sequence of nodes. An element is a vector of a keyword
-  tag, a map of keyword attributes and its children, and text is a string.
-  For HTML that a client can render, use the hiccup function. It parses
-  and sanitizes HTML, and makes paragraphs of plain text. The text and
-  markdown functions render HTML or Hiccup as text, and emit writes Hiccup
-  back as HTML. Every function takes the same map of options, which
-  default-options lists.
-
-  The namespaces under this one hold how it's done: the tokenizer and the
-  entities of the HTML Standard, the tree, the URLs, the renderers of text
-  and Markdown, and the serializer.
-
-  TODO: an optional report of what parse discarded and what sanitize
+  TODO: an optional report of what parsing discarded and sanitizing
   removed, e.g. in metadata, so that a validator can tell the author of
   the HTML what a client won't show."
   (:require [dk.simongray.html-pieces.commonmark :as commonmark]
@@ -25,41 +13,41 @@
             [dk.simongray.html-pieces.url :as url]
             [dk.simongray.html-pieces.whitespace :as whitespace]))
 
+;; whole tags only, so that e.g. an email address in angle brackets or a
+;; less-than sign before a 3 stays plain text
 (def ^:no-doc markup
-  "A comment or a whole tag, which markup? looks for."
+  "The start of a comment, or a whole tag."
   (re-pattern (str "<!--"
                    "|<[a-zA-Z][a-zA-Z0-9]*(?:[\\t\\n\\f\\r ][^<>]*)?/?>"
                    "|</[a-zA-Z][a-zA-Z0-9]*[\\t\\n\\f\\r ]*>")))
 
 (defn markup?
   "Whether the text `s` is HTML rather than plain text: whether it holds a
-  comment or a whole tag. Plain text may hold an email address in angle
-  brackets, or a less-than sign before a 3, and neither is a tag."
+  comment or a whole tag."
   [s]
   (boolean (re-find markup (str s))))
 
 (def max-depth
-  "How deep the parse function nests elements, far deeper than embedded
-  HTML goes in practice. An element opened deeper is kept empty, and its
-  content goes to its parent, so that no walk of the tree overflows the
-  stack."
+  "How deep elements nest at most. An element opened deeper is kept empty,
+  and its content goes to its parent, so that no walk of the tree
+  overflows the stack."
   128)
 
 (def allowed-tags
-  "The elements that sanitize keeps."
+  "The elements that are safe to render."
   #{:p :br :a :strong :b :em :i :u :s :strike :del :ins :mark :small :sup :sub
     :ul :ol :li :dl :dt :dd :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :q :cite :abbr
     :dfn :code :kbd :pre :hr :img :span :div :figure :figcaption
     :table :thead :tbody :tfoot :tr :td :th :caption})
 
 (def dropped-tags
-  "The elements that sanitize removes with their content."
+  "The elements that are removed with their content."
   #{:script :style :iframe :object :embed :form :input :button :select :option
     :textarea :noscript :svg :math :template :head :title :meta :link :base
     :frame :frameset :applet :audio :video :canvas})
 
 (def allowed-attributes
-  "The attributes that sanitize keeps, by element."
+  "The attributes that are safe to render, by element."
   {:a          #{:href :title :rel :hreflang}
    :img        #{:src :alt :title :width :height}
    :td         #{:colspan :rowspan}
@@ -73,19 +61,17 @@
 ;; HTML Standard, "Index", the attributes whose value is a URL, with
 ;; background and longdesc of older pages and xlink:href of SVG
 (def url-attributes
-  "The attributes whose value is a URL, which sanitize checks."
+  "The attributes whose value is a URL."
   #{:action :background :cite :data :formaction :href :itemid :longdesc
     :manifest :poster :src :xlink:href})
 
 (def url-list-attributes
-  "The attributes whose value is a list of URLs, which sanitize checks one
-  by one: ping and itemtype, separated by spaces, and srcset, separated by
-  commas, with a descriptor after each URL."
+  "The attributes whose value is a list of URLs, separated by spaces, or by
+  commas in a srcset."
   #{:itemtype :ping :srcset})
 
 (def allowed-schemes
-  "The schemes of the URLs that sanitize keeps, and that text and markdown
-  show as links."
+  "The schemes of the URLs that are safe to keep or show as links."
   #{"http" "https" "mailto"})
 
 (def paragraph-tags
@@ -98,27 +84,18 @@
     :section :article})
 
 (def max-quotes
-  "How deeply markdown nests quotes. A quote deeper inside is a paragraph,
-  so that no line carries a > for each of hundreds of levels."
+  "How deep quotes nest in Markdown at most. A deeper quote is a plain
+  paragraph, so that no line starts with hundreds of >."
   16)
 
 (def default-options
-  "The default of each option. Every function takes one map of options and
-  reads the keys that it knows:
+  "The default of each option. Most are vars of the same name, and the
+  others are:
 
-  - :max-depth, how deep parse nests elements
-  - :allowed-tags, :dropped-tags and :allowed-attributes, the tables of
-    sanitize
-  - :allowed-schemes, the schemes of the URLs that sanitize keeps, and
-    :url-attributes and :url-list-attributes, the attributes that hold them
   - :url-fn, a function of a URL that gives the URL to keep, or nil
-  - :paragraph-tags and :line-tags, where text and markdown break lines
-  - :max-quotes, how deeply markdown nests quotes
-  - :links?, true for text to put the URL after each link
-  - :quirks?, false to leave out a repair that the HTML Standard doesn't
-    make: reading a C1 control in text as windows-1252
-
-  Each of them but :url-fn, :links? and :quirks? is a var of the same name."
+  - :links?, true to put the URL of each link after it in plain text
+  - :quirks?, true to read a C1 control character as windows-1252 in text
+    and Markdown, a repair that the HTML Standard doesn't make"
   {:max-depth           max-depth
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
@@ -134,39 +111,20 @@
    :quirks?             true})
 
 (defn- options
-  "The `opts` with the default-options of the keys that they leave out or
-  give as nil."
+  "The `opts` with the defaults of the keys that they leave out or give as
+  nil."
   [opts]
   (if (empty? opts)
     default-options
     (into default-options (remove (comp nil? val)) opts)))
 
 (defn parse
-  "The HTML fragment `s` as a sequence of Hiccup nodes, nested at most as
-  deep as the :max-depth of `opts`.
+  "The HTML `s` as a sequence of Hiccup nodes, nested at most as deep as the
+  :max-depth of `opts`.
 
-  The tokens are those of the HTML Standard, by
-  dk.simongray.html-pieces.tokenizer, and the tree follows the rules of
-  the standard that embedded HTML needs:
-
-  - unclosed paragraphs, list items, table cells, headings and links
-    close where HTML says they do
-  - void elements, and the elements of SVG and MathML that close
-    themselves with a slash, have no content
-  - stray end tags are ignored, and </br> is a line break
-  - comments, DOCTYPEs and processing instructions vanish
-
-  Misnested inline elements close through the nearest match, where a
-  browser would carry them on. Tags and attribute keys are lower-case
-  keywords, an attribute without a value has the empty string, and text
-  is a string with its character references decoded.
-
-  A whole page parses too, e.g. for its link, meta and title elements, but
-  its html, head and body elements stay as they're written, without the
-  rules that a browser has for them.
-
-  Hiccup renderers take a sequence as a fragment, so the result can go
-  straight into a parent element."
+  Unclosed elements close where a browser closes them, but formatting isn't
+  carried on past a misnested end tag. The html, head and body elements of
+  a whole page stay as they're written. Comments and DOCTYPEs are left out."
   ([s]
    (parse s {}))
   ([s opts]
@@ -177,9 +135,8 @@
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
 (defn- safe-attributes
-  "The attributes `attrs` of an element `tag` that the :allowed-attributes
-  of `opts` has, with each URL as url/checked gives it by the :url-fn and
-  the :allowed-schemes of `opts`, and without one that isn't allowed."
+  "The attributes `attrs` of the element `tag` that `opts` allows, with
+  their URLs checked."
   [opts tag attrs]
   (let [{:keys [allowed-attributes url-attributes url-list-attributes url-fn]
          schemes :allowed-schemes} opts]
@@ -199,24 +156,17 @@
                [k v]))))
 
 (defn sanitize
-  "The Hiccup `nodes` that a client may render, by the rules below and the
-  `opts` of default-options. In the result:
+  "The Hiccup `nodes` with only what's safe to render, by these keys of
+  `opts`:
 
-  - the elements and attributes of :allowed-tags and :allowed-attributes
-    are kept
-  - a URL is kept when its scheme is one of :allowed-schemes, after the
-    function :url-fn has rewritten it
-  - the elements of :dropped-tags are removed with their content
-  - any other element is replaced by its children
-  - lists and tables lose the whitespace of their layout
+  - elements of :allowed-tags are kept, with the attributes of
+    :allowed-attributes
+  - elements of :dropped-tags are removed with their content
+  - other elements are replaced by their children
+  - a URL is kept, as :url-fn rewrites it, when its scheme is one of
+    :allowed-schemes, which leaves out relative URLs by default
 
-  The function :url-fn can e.g. make a relative URL absolute against the page
-  that the HTML came from. A client would resolve it against its own page,
-  so without such a function a relative URL is left out.
-
-  Text in the result is decoded, e.g. &lt; is <, so render it with a
-  renderer that escapes text, such as Replicant, Reagent,
-  hiccup2.core/html or emit."
+  Text is decoded, e.g. &lt; is <, so use a renderer that escapes text."
   ([nodes]
    (sanitize nodes {}))
   ([nodes opts]
@@ -232,6 +182,7 @@
                  (let [[tag attrs children] (tree/parts x)]
                    (if (dropped tag)
                      []
+                     ;; lists and tables lose the whitespace of their layout
                      (let [kids (into []
                                       (comp (mapcat node)
                                             (if (structural-tags tag)
@@ -246,11 +197,9 @@
          (apply list (into [] (mapcat node) nodes)))))))
 
 (defn hiccup
-  "The Hiccup that a client can render for the HTML or plain text `s`, as a
-  sequence of nodes to put inside a parent element. HTML is parsed and
-  sanitized with the `opts` of parse and sanitize, and plain text becomes
-  paragraphs with line breaks. Text in the result is decoded, so it needs
-  a renderer that escapes text, as sanitize says."
+  "The HTML or plain text `s` as Hiccup that's safe to render, by `opts`.
+  Plain text becomes paragraphs with line breaks. Text is decoded, e.g.
+  &lt; is <, so use a renderer that escapes text."
   ([s]
    (hiccup s {}))
   ([s opts]
@@ -271,18 +220,9 @@
     :else             []))
 
 (defn text
-  "The HTML text or Hiccup `x` as plain text, by the `opts` of
-  default-options. In the text:
-
-  - paragraphs and the other elements of :paragraph-tags are separated by
-    a blank line, and those of :line-tags end a line
-  - list items are on their own lines, with a marker
-  - a link is its text, followed by its URL in parentheses when :links?
-    and the scheme of the URL is one of :allowed-schemes
-  - an image is its alt text
-  - a carriage return is a space, and other control characters are left
-    out, but for tabs and line breaks. When :quirks?, a C1 control is the
-    character of windows-1252 that it stands for."
+  "The HTML or Hiccup `x` as plain text, by `opts`. An image is its alt
+  text, and a link is followed by its URL when :links? and the scheme is
+  allowed. Control characters are left out, but for tabs and line breaks."
   ([x]
    (text x {}))
   ([x opts]
@@ -293,18 +233,10 @@
                   opts))))
 
 (defn markdown
-  "The HTML text or Hiccup `x` as Markdown, by the `opts` of
-  default-options, which a Markdown renderer shows as a browser shows the
-  HTML. In the Markdown:
-
-  - headings, emphasis, links, images, lists, quotes, code and rules take
-    their Markdown forms, and quotes nest at most :max-quotes deep
-  - a line break becomes a backslash at the end of the line
-  - text is escaped where Markdown would read it as markup
-  - a link or an image is its text when the scheme of its URL isn't one of
-    :allowed-schemes
-  - paragraphs, line breaks and control characters are as text has them
-  - everything else is its text"
+  "The HTML or Hiccup `x` as Markdown, by `opts`. Text is escaped where
+  Markdown would read it as markup, and a link or an image is its text
+  when the scheme isn't allowed. Control characters are left out, but for
+  tabs and line breaks."
   ([x]
    (markdown x {}))
   ([x opts]
@@ -316,13 +248,9 @@
                    opts)))))
 
 (defn emit
-  "The Hiccup or HTML text `x` as an HTML string, with the text escaped and
-  the void elements without end tags. HTML or plain text in a string is
-  first made Hiccup by hiccup with `opts`, and so sanitized.
-
-  Hiccup is written as it's given, except for a name that HTML can't hold:
-  such an attribute is left out, and such an element is replaced by its
-  children."
+  "The Hiccup or HTML text `x` as HTML, sanitized with `opts` first when
+  it's a string of HTML or plain text. Hiccup is written as it's given, but
+  without any tag or attribute name that HTML can't hold."
   ([x]
    (emit x {}))
   ([x opts]

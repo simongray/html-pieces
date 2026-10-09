@@ -3,14 +3,12 @@
   the table in section 13.5 of the HTML Standard.
 
   The table is the entities.json that WHATWG publishes with the standard,
-  as of 2026-10-08, under CC BY 4.0. It's read when the namespace
-  compiles, so ClojureScript carries it as one string.
+  as of 2026-10-08, under CC BY 4.0.
 
   Only the names of HTML 4.01 are kept, with &apos; of XML and the legacy
-  names that HTML reads without a semicolon: 365 of the 2,231 names. The
-  rest came to HTML from MathML, such as &NotEqualTilde;, and a reference
-  to one of them stays text. They would make the table eight times as
-  large, and the HTML of real feeds and comments hardly ever uses one.
+  names that HTML reads without a semicolon. The rest came from MathML,
+  e.g. &NotEqualTilde;, and stay text: they would make the table many
+  times as large, and embedded HTML hardly ever uses them.
 
   TODO: read the names from MathML too, by an option or a namespace of
   their own, for HTML that writes mathematics with them."
@@ -55,6 +53,8 @@
        "permil" "lsaquo" "rsaquo" "euro"}))
 
 #?(:clj
+   ;; read when the namespace compiles, so that ClojureScript carries the
+   ;; table as one string
    (defmacro ^:no-doc table
      "The names and code points of entities.json as one string, a line for
      each name that the table keeps: the name without its ampersand, a

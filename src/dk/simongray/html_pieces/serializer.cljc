@@ -1,6 +1,6 @@
 (ns ^:no-doc dk.simongray.html-pieces.serializer
   "Hiccup written as HTML, as 13.3 of the HTML Standard serializes a
-  fragment: the text escaped, and the void elements without end tags."
+  fragment."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.tree :as tree]))
 

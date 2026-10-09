@@ -1,10 +1,6 @@
 (ns ^:no-doc dk.simongray.html-pieces.render
   "Hiccup rendered as text: a walk that renders each text and element by
-  the functions that it's given, and the functions for plain text.
-
-  The walk leaves out what a browser doesn't show and what a terminal
-  would act on, and gives each line of preformatted text a mark, so that
-  tidying the text leaves its indentation alone."
+  the functions that it's given, and the functions for plain text."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.entities :as entities]
             [dk.simongray.html-pieces.tokenizer :as tokenizer]
@@ -13,13 +9,13 @@
             [dk.simongray.html-pieces.whitespace :as whitespace]))
 
 (def pre-mark
-  "The mark that walk puts at the start of each line of preformatted text,
-  so that tidy leaves its indentation alone and then removes it. It's a
-  character of the private use area, which no text holds."
+  "The mark at the start of each line of preformatted text while it's
+  rendered, so that its indentation is kept. It's a character of the
+  private use area, which no text holds."
   "\uE000")
 
 (defn- marked-lines
-  "The preformatted text `s` with pre-mark at the start of each line, and
+  "The preformatted text `s` with a mark at the start of each line, and
   without the line breaks at its end."
   [s]
   (let [end (loop [i (count s)]
@@ -47,16 +43,17 @@
 
 ;; CSS Text 3, "White Space Processing & Control Characters": a browser
 ;; shows a carriage return as a space, and other control characters but
-;; tabs and line feeds as boxes, if at all
+;; tabs and line feeds as boxes, if at all. A terminal or a notification
+;; could act on them, so they're left out.
 (defn- shown
   "The text `s` with each carriage return as a space, and without the
-  other control characters but tabs and line feeds, which a terminal or a
-  notification could obey. With `quirks?`, a C1 control, which is mostly
-  a character of windows-1252 read as Latin-1, is that character where it
-  has one, as for a numeric reference in 13.2.5.84 of the HTML Standard."
+  other control characters but tabs and line feeds. With `quirks?`, a C1
+  control is the character of windows-1252 that it stands for, as for a
+  numeric reference in 13.2.5.84 of the HTML Standard."
   [s quirks?]
   (if (controls? s)
     (cond-> (str/replace s "\r" " ")
+      ;; a C1 control is mostly a character of windows-1252 read as Latin-1
       quirks?
       (str/replace #"[\x80-\x9F]"
                    #(if-let [x (get tokenizer/c1-replacements
@@ -69,9 +66,9 @@
     s))
 
 (defn- tidy
-  "The rendered `s` as shown gives it with `quirks?`, trimmed, with each
-  run of blank lines cut to one. Its lines are trimmed too, except those
-  of preformatted text."
+  "The rendered `s` without control characters, by `quirks?`, trimmed, and
+  with each run of blank lines cut to one. Its lines are trimmed too,
+  except those of preformatted text."
   [s quirks?]
   (let [trim-line #(if (str/starts-with? % pre-mark) % (whitespace/strip %))
         lines     (->> (str/split-lines (shown s quirks?))
@@ -85,25 +82,16 @@
 
 (defn walk
   "The `nodes` rendered as text by the functions `inline-fn` and
-  `element-fn`, starting from the map `context`.
+  `element-fn`, starting from the map `context` of options.
 
-  The `inline-fn` renders a string, and takes the string and the context.
-  The `element-fn` renders an element, and takes its tag and attributes,
-  its rendered children and the context. The context holds what these
-  functions need, and walk reads two keys of it:
+  The `inline-fn` takes a string and the context, and the `element-fn`
+  takes a vector of the tag and attributes, the rendered children and the
+  context. Inside an element, the context also has:
 
-  - :dropped-tags, the elements that render as nothing, as a browser
-    shows no script
-  - :quirks?, as shown takes it
-
-  For the elements inside, walk adds these keys:
-
-  - :list is :ul or :ol inside a list
-  - :index is a volatile that counts the list items
-  - :pre, :code and :quotes count the pre, code and blockquote elements
-    that it's in, the element itself included
-
-  Every line of the outermost pre starts with pre-mark."
+  - :list, :ul or :ol inside a list
+  - :index, a volatile that counts the list items
+  - :pre, :code and :quotes, how many pre, code and blockquote elements
+    it's in, the element itself included"
   [nodes inline-fn element-fn context]
   (letfn [(node [x outer]
             (cond
@@ -131,8 +119,8 @@
           (:quirks? context))))
 
 (defn list-marker
-  "The marker of a list item in the context `ctx` of walk: its number in an
-  ordered list, a dash in another list, and nothing outside a list."
+  "The marker of a list item in the context `ctx`: its number in an ordered
+  list, a dash in another list, and nothing outside a list."
   [{:keys [list index] :as ctx}]
   (case list
     :ol (str (vswap! index inc) ". ")
@@ -140,20 +128,14 @@
     ""))
 
 (defn text-inline
-  "The plain text of the text `s` in the context `ctx` of walk: its
-  whitespace collapsed, but in a pre."
+  "The plain text of the text `s` in the context `ctx`: its whitespace
+  collapsed, but in a pre."
   [s ctx]
   (if (:pre ctx) s (whitespace/collapse s)))
 
 (defn text-element
   "The plain text of the element of `tag` and `attrs`, whose children
-  render as `inner`, in the context `ctx` of walk. It reads these keys of
-  the context:
-
-  - :paragraph-tags, the elements set off by a blank line, and
-    :line-tags, those that end a line
-  - :links?, true to put the URL of a link after it, when its scheme is
-    one of :allowed-schemes"
+  render as `inner`, in the context `ctx`."
   [[tag attrs] inner ctx]
   (let [href   (when (:links? ctx)
                  (some-> (:href attrs) str (str/replace #"[\t\n\r]" "")))

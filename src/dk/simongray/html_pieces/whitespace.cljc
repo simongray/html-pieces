@@ -44,9 +44,9 @@
 
 (defn collapse
   "The text `s` with each run of ASCII whitespace as one space, but not
-  stripped. Most text has only single spaces, which indexOf tells without
-  a regular expression, and then it stays as it is."
+  stripped."
   [s]
+  ;; most text has only single spaces, and then the regex is skipped
   (if (some #(str/includes? s %) ["\n" "  " "\t" "\r" "\f"])
     (str/replace s #"[\t\n\f\r ]+" " ")
     s))

@@ -1,11 +1,6 @@
 (ns ^:no-doc dk.simongray.html-pieces.commonmark
   "Hiccup rendered as Markdown, by CommonMark 0.31.2, with the tables and
-  strikethrough of GitHub Flavored Markdown.
-
-  Text is escaped wherever Markdown would read it as markup, so that a
-  Markdown renderer shows it as it is. A link or an image keeps its URL
-  only when the scheme is allowed, and the URL is escaped so that it can't
-  end the link."
+  strikethrough of GitHub Flavored Markdown."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.render :as render]
             [dk.simongray.html-pieces.tokenizer :as tokenizer]
@@ -34,19 +29,20 @@
   #"^([\t\n\f\r ]*)(?:([#+=-])|([0-9]{1,9})([.)]))")
 
 (defn escaped
-  "The text `s` with the characters of escapes and the start of a character
-  reference escaped, so that Markdown shows it as it is."
+  "The text `s` with the characters that start inline markup or a character
+  reference escaped."
   [s]
   (cond-> (str/escape s escapes)
     (str/includes? s "&") (str/replace reference-start (constantly "\\&"))))
 
 (defn escaped-text
-  "The text `s` as escaped gives it, and with what would start a block at
-  the start of a line escaped too, since any text can start one."
+  "The text `s` with what Markdown would read as markup escaped, including
+  the start of a block."
   [s]
   (let [s    (escaped s)
         n    (count s)
         lead (tokenizer/char-at s n (tokenizer/skip-whitespace s n 0))]
+    ;; any text can end up at the start of a line
     (if (and lead (or (tokenizer/digit? lead) (#{\# \+ \= \-} lead)))
       (str/replace s
                    block-start
@@ -56,11 +52,11 @@
                        (str space digits "\\" end))))
       s)))
 
-;; CommonMark 0.31.2, section 6.3
+;; CommonMark 0.31.2, section 6.3, without the tabs and line breaks that a
+;; browser drops from a URL
 (defn destination
-  "The URL `s` as the destination of a Markdown link: without the tabs and
-  line breaks that a browser drops, with its spaces encoded, and with what
-  would end it or start an escape or a reference escaped."
+  "The URL `s` as the destination of a Markdown link, escaped so that it
+  can't end the link."
   [s]
   (-> (str/replace s #"[\t\n\r]" "")
       (str/replace " " "%20")
@@ -75,10 +71,10 @@
     (apply str (repeat (max n (inc longest)) "`"))))
 
 ;; CommonMark 0.31.2, section 6.1: a span drops one space from each end
-;; when both ends have one
+;; when both ends have one, and a backtick at an end would join the
+;; backticks around it
 (defn code-span
-  "The code `s` as a Markdown code span, with a space inside each end when
-  it starts or ends with a backtick, or starts and ends with a space."
+  "The code `s` as a Markdown code span."
   [s]
   (let [ticks (backticks s 1)
         pad   (if (or (str/starts-with? s "`")
@@ -138,9 +134,8 @@
          (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
 
 (defn inline
-  "The Markdown of the text `s` in the context `ctx` of a walk of the
-  render namespace: as it is in a pre, collapsed in a code element, and
-  escaped elsewhere."
+  "The Markdown of the text `s` in the context `ctx`: as it is in a pre,
+  collapsed in a code element, and escaped elsewhere."
   [s ctx]
   (cond
     (:pre ctx)  s
@@ -149,16 +144,7 @@
 
 (defn element
   "The Markdown of the element of `tag` and `attrs`, whose children render
-  as `inner`, in the context `ctx` of a walk of the render namespace. An
-  element inside a pre or a code element is its text. It reads these keys
-  of the context:
-
-  - :paragraph-tags, the elements set off by a blank line, and
-    :line-tags, those that end a line
-  - :allowed-schemes, the schemes of the URLs that a link or an image
-    keeps, which is otherwise its text
-  - :max-quotes, how deeply quotes nest, past which a quote is a
-    paragraph"
+  as `inner`, in the context `ctx`."
   [[tag attrs] inner ctx]
   (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))]
                   (parse-long n))
@@ -233,9 +219,9 @@
       inner)))
 
 (defn with-breaks-fixed
-  "The Markdown `md` with two line breaks in a row, which Markdown has no
-  way to write, as the end of a paragraph, and without a line break before
-  a block or at the end, which Markdown shows as a backslash."
+  "The Markdown `md` with two line breaks in a row as the end of a
+  paragraph, and without a line break before a block or at the end, which
+  Markdown shows as a backslash."
   [md]
   (cond-> md
     (str/includes? md "\\")
