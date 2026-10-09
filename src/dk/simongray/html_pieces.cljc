@@ -120,7 +120,8 @@
 
 (defn parse
   "The HTML `s` as a sequence of Hiccup nodes, nested at most as deep as the
-  :max-depth of `opts`.
+  :max-depth of `opts`. Nothing is sanitized, so for HTML to render, use
+  hiccup or sanitize.
 
   Unclosed elements close where a browser closes them, but formatting isn't
   carried on past a misnested end tag. The html, head and body elements of
@@ -155,9 +156,20 @@
                    :when (some? v)]
                [k v]))))
 
-(defn sanitize
-  "The Hiccup `nodes` with only what's safe to render, by these keys of
-  `opts`:
+(defn- nodes-of
+  "The nodes of `x`, which is a string, a node or nodes. A string is parsed
+  with `opts` when it holds markup, or read as paragraphs when it's plain
+  text, and anything else is no nodes."
+  [x opts]
+  (cond
+    (string? x)       (if (markup? x) (parse x opts) (tree/paragraphs x))
+    (tree/element? x) [x]
+    (sequential? x)   x
+    :else             []))
+
+(defn hiccup
+  "The HTML, plain text or Hiccup `x` as Hiccup that's safe to render, by
+  these keys of `opts`:
 
   - elements of :allowed-tags are kept, with the attributes of
     :allowed-attributes
@@ -166,11 +178,13 @@
   - a URL is kept, as :url-fn rewrites it, when its scheme is one of
     :allowed-schemes, which leaves out relative URLs by default
 
-  Text is decoded, e.g. &lt; is <, so use a renderer that escapes text."
-  ([nodes]
-   (sanitize nodes {}))
-  ([nodes opts]
+  Plain text becomes paragraphs with line breaks. Text is decoded, e.g.
+  &lt; is <, so use a renderer that escapes text."
+  ([x]
+   (hiccup x {}))
+  ([x opts]
    (let [opts    (options opts)
+         nodes   (nodes-of x opts)
          allowed (:allowed-tags opts)
          dropped (:dropped-tags opts)
          layout? #(and (string? %) (whitespace/blank? %))]
@@ -193,31 +207,15 @@
                        (if (allowed tag)
                          [(into [tag safe] kids)]
                          kids))))))]
-       (let [nodes (if (tree/element? nodes) [nodes] nodes)]
-         (apply list (into [] (mapcat node) nodes)))))))
+       (apply list (into [] (mapcat node) nodes))))))
 
-(defn hiccup
-  "The HTML or plain text `s` as Hiccup that's safe to render, by `opts`.
-  Plain text becomes paragraphs with line breaks. Text is decoded, e.g.
-  &lt; is <, so use a renderer that escapes text."
-  ([s]
-   (hiccup s {}))
-  ([s opts]
-   (let [s (str s)]
-     (if (markup? s)
-       (sanitize (parse s opts) opts)
-       (tree/paragraphs s)))))
-
-(defn- nodes-of
-  "The nodes of `x`, which is a string, a node or nodes. A string is parsed
-  with `opts` when it holds markup, or read as paragraphs when it's plain
-  text, and anything else is no nodes."
-  [x opts]
-  (cond
-    (string? x)       (if (markup? x) (parse x opts) (tree/paragraphs x))
-    (tree/element? x) [x]
-    (sequential? x)   x
-    :else             []))
+(defn sanitize
+  "The HTML, plain text or Hiccup `x` as HTML that's safe to render, by the
+  `opts` of hiccup."
+  ([x]
+   (sanitize x {}))
+  ([x opts]
+   (serializer/html (hiccup x opts))))
 
 (defn text
   "The HTML or Hiccup `x` as plain text, by `opts`. An image is its alt
@@ -246,21 +244,11 @@
                                          commonmark/element
                                          opts)))))
 
-(defn emit
-  "The Hiccup or HTML text `x` as HTML, sanitized with `opts` first when
-  it's a string of HTML or plain text. Hiccup is written as it's given, but
-  without any tag or attribute name that HTML can't hold."
-  ([x]
-   (emit x {}))
-  ([x opts]
-   (serializer/html (if (string? x)
-                      (hiccup x opts)
-                      (nodes-of x opts)))))
-
 #?(:clj
    (comment
      (parse "<p>Hello <b>world</b><br>Line two<ul><li>one<li>two</ul>")
      (hiccup "Plain text\n\nwith two paragraphs\nand a break")
+     (sanitize "<p onclick=\"steal()\">Hi <b>there</b></p><script>x</script>")
      (text (str "<p>Hello <a href=\"https://x\">link</a></p>"
                 "<ul><li>one</li><li>two</li></ul>")
            {:links? true})

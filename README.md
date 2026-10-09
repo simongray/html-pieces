@@ -58,18 +58,19 @@ Then try it on a piece of HTML:
 (html/markdown piece)
 ;; => "## Hi!\n\nNice [post](https://example.com/),\\\nthanks.\n\n- one\n- two"
 
-(html/emit (html/hiccup piece))
+(html/sanitize piece)
 ;; => "<h2>Hi!</h2><p>Nice <a href=\"https://example.com/\">post</a>,<br>thanks.</p><ul><li>one</li><li>two</li></ul>"
 ```
 
-The `hiccup` function both parses and sanitises, so the `<script>` and the
+Both `hiccup` and `sanitize` parse and sanitise, so the `<script>` and the
 `onclick` are gone, and the unclosed `<p>` and `<li>` are closed where a
 browser closes them. Plain text works too: it becomes paragraphs and line breaks,
-so you can give `hiccup` any field without checking what's in it first.
+so you can give them any field without checking what's in it first. They
+take Hiccup as well, e.g. Hiccup that you've built or changed yourself.
 
-The result goes straight into a Hiccup renderer. Its text is decoded, e.g.
-`&lt;` is `<`, so use a renderer that escapes text again, such as
-Replicant, Reagent, `hiccup2.core/html` or `html/emit`. The older
+The result of `hiccup` goes straight into a Hiccup renderer. Its text is
+decoded, e.g. `&lt;` is `<`, so use a renderer that escapes text again,
+such as Replicant, Reagent or `hiccup2.core/html`. The older
 `hiccup.core/html` doesn't.
 
 **NOTE:** relative URLs are left out, since a browser would resolve them
@@ -125,9 +126,9 @@ Principles
   with a sensible default, and an option of the same name replaces it.
 - **Pure functions.** Strings and Hiccup in, strings and Hiccup out, with
   no I/O and no state.
-- **Safe by default.** `hiccup` keeps only the tags, attributes and URLs
-  that a page can render safely, and `text` and `markdown` leave out what
-  a terminal or a Markdown renderer would act on.
+- **Safe by default.** `hiccup` and `sanitize` keep only the tags,
+  attributes and URLs that a page can render safely, and `text` and
+  `markdown` leave out what a terminal or a Markdown renderer would act on.
 - **One codebase.** The library is written in `.cljc`. Its only dependency
   is data.json, which reads the table of character references when the
   code compiles.

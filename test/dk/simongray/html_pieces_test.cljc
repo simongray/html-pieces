@@ -2,7 +2,8 @@
   "Embedded HTML as Hiccup, sanitized, and rendered as text and Markdown."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.html-pieces :as html]))
+            [dk.simongray.html-pieces :as html]
+            [dk.simongray.html-pieces.serializer :as serializer]))
 
 (deftest parsing-the-way-a-browser-does
   (testing "elements, attributes and entities"
@@ -71,50 +72,50 @@
             " " "plain" " "
             [:ul {} [:li {} "one"] [:li {} "two"]]
             [:img {:alt "pic"}]]
-           (html/sanitize (html/parse dirty))))
+           (html/hiccup dirty)))
     (is (= [[:dfn {:title "term"} "x"]]
-           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>"))))
+           (html/hiccup "<dfn title=\"term\" class=\"c\">x</dfn>")))
     (testing "the tables of the caller in the place of the vars"
       (is (= [[:p {} "Hi " [:a {:class "c"} "bad"] " " "plain"]]
-             (html/sanitize (html/parse "<p id=\"x\">Hi <a href=\"javascript:alert(1)\" class=\"c\">bad</a> <font>plain</font><em>gone</em></p>")
-                            {:allowed-attributes (update html/allowed-attributes :a conj :class)
-                             :dropped-tags       (conj html/dropped-tags :em)})))
+             (html/hiccup "<p id=\"x\">Hi <a href=\"javascript:alert(1)\" class=\"c\">bad</a> <font>plain</font><em>gone</em></p>"
+                          {:allowed-attributes (update html/allowed-attributes :a conj :class)
+                           :dropped-tags       (conj html/dropped-tags :em)})))
       (is (= ["Hi " [:b {} "there"]]
-             (html/sanitize (html/parse "<p>Hi <b title=\"t\">there</b></p>") {:allowed-tags #{:b}})))))
+             (html/hiccup "<p>Hi <b title=\"t\">there</b></p>" {:allowed-tags #{:b}})))))
   (testing "javascript: behind the tabs, line breaks and control characters a browser drops"
     (doseq [href ["java&#9;script:alert(1)" "java&#10;script:alert(1)" "java&#x0D;script:alert(1)"
                   "&#1;javascript:alert(1)" " javascript:alert(1)" "java\tscript:alert(1)"]]
-      (is (= [[:a {} "x"]] (html/sanitize (html/parse (str "<a href=\"" href "\">x</a>")))) href)))
+      (is (= [[:a {} "x"]] (html/hiccup (str "<a href=\"" href "\">x</a>"))) href)))
   (testing "a relative URL, which a client would resolve against its own page"
     (is (= [[:a {} "rel"] [:img {:alt "pic"}]]
-           (html/sanitize (html/parse "<a href=\"/rel\">rel</a><img src=\"/logout\" alt=\"pic\">"))))
+           (html/hiccup "<a href=\"/rel\">rel</a><img src=\"/logout\" alt=\"pic\">")))
     (is (= [[:a {:href "https://show.example/rel"} "rel"]]
-           (html/sanitize (html/parse "<a href=\"/rel\">rel</a>")
-                          {:url-fn #(str "https://show.example" %)})))
+           (html/hiccup "<a href=\"/rel\">rel</a>"
+                        {:url-fn #(str "https://show.example" %)})))
     (is (= [[:a {} "x"]]
-           (html/sanitize (html/parse "<a href=\"https://ok/\">x</a>")
-                          {:url-fn (constantly "javascript:alert(1)")}))
+           (html/hiccup "<a href=\"https://ok/\">x</a>"
+                        {:url-fn (constantly "javascript:alert(1)")}))
         "what :url-fn gives is checked too")
     (is (= [[:a {} "x"] [:a {} "y"]]
-           (html/sanitize (html/parse (str "<a href=\"javascript&colon;alert(1)\">x</a>"
-                                           "<a href=\"java&Tab;script:alert(1)\">y</a>"))))
+           (html/hiccup (str "<a href=\"javascript&colon;alert(1)\">x</a>"
+                             "<a href=\"java&Tab;script:alert(1)\">y</a>")))
         "a name of HTML5 that isn't decoded hides no scheme, since the URL is relative"))
   (testing "the URLs of the attributes that a caller allows, and only as strings"
     (let [allowed (assoc html/allowed-attributes :img #{:srcset} :a #{:ping})]
       (is (= [[:img {:srcset "https://x/a.png 1x, https://x/b.png 2x"}]
               [:img {}]
               [:a {:ping "https://x/p https://y/q"} "x"]]
-             (html/sanitize (html/parse (str "<img srcset=\"https://x/a.png 1x, https://x/b.png 2x\">"
-                                             "<img srcset=\"https://x/a.png 1x, javascript:alert(1) 2x\">"
-                                             "<a ping=\"https://x/p https://y/q\">x</a>"))
-                            {:allowed-attributes allowed}))))
+             (html/hiccup (str "<img srcset=\"https://x/a.png 1x, https://x/b.png 2x\">"
+                               "<img srcset=\"https://x/a.png 1x, javascript:alert(1) 2x\">"
+                               "<a ping=\"https://x/p https://y/q\">x</a>")
+                          {:allowed-attributes allowed}))))
     (is (= [[:a {} "y"] [:a {} "z"]]
-           (html/sanitize [[:a {:href (keyword "javascript:alert(1)")} "y"]
-                           [:a {:href ["javascript:alert(1)"]} "z"]]))))
+           (html/hiccup [[:a {:href (keyword "javascript:alert(1)")} "y"]
+                         [:a {:href ["javascript:alert(1)"]} "z"]]))))
   (testing "Hiccup of any shape, and options of nil"
-    (is (= [[:p {}] "y"] (html/sanitize [[:p []] [nil] [1 "x"] "y"])))
-    (is (= [[:p {} "x"]] (html/sanitize [[:p "x"]] {:allowed-tags nil})))
-    (is (= [[:p {} "x"]] (html/sanitize [:p "x"])) "an element alone")))
+    (is (= [[:p {}] "y"] (html/hiccup [[:p []] [nil] [1 "x"] "y"])))
+    (is (= [[:p {} "x"]] (html/hiccup [[:p "x"]] {:allowed-tags nil})))
+    (is (= [[:p {} "x"]] (html/hiccup [:p "x"])) "an element alone")))
 
 (deftest hostile-markup
   (testing "nesting stops at max-depth, so that no walk of the tree overflows the stack"
@@ -123,7 +124,7 @@
       (is (>= (inc html/max-depth) (reduce max 0 (map depth (html/parse deep)))))
       (is (= 1 (count (html/hiccup deep))))
       (is (= "" (html/text deep)))
-      (is (string? (html/emit (html/parse deep))))))
+      (is (string? (html/sanitize deep)))))
   (testing "end tags that close nothing are ignored at once, however deep the tree"
     (is (= "ab" (html/text (str (apply str (repeat 500 "<span>")) "a" (apply str (repeat 50000 "</b>")) "b")))))
   (testing "a long run of stray angle brackets is one text, read in linear time"
@@ -157,7 +158,7 @@
 (deftest hiccup-for-a-client
   (testing "markup is parsed and sanitized"
     (is (= [[:p {} "Hi " [:b {} "there"]]] (html/hiccup "<p>Hi <b>there</b><script>x</script></p>"))))
-  (testing "with the options of sanitize"
+  (testing "with options"
     (is (= [[:a {:href "https://x/" :class "mention"} "@ann"]]
            (html/hiccup "<a href=\"https://x/\" class=\"mention\" id=\"m\">@ann</a>"
                         {:allowed-attributes (update html/allowed-attributes :a conj :class)}))))
@@ -242,25 +243,33 @@
     (is (= "a\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags #{} :line-tags #{:p}})))
     (is (= "x (ftp://x/)" (html/text "<a href=\"ftp://x/\">x</a>" {:links? true :allowed-schemes #{"ftp"}})))
     (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quotes 1})))
-    (is (= "<a href=\"https://s.example/x\">x</a>" (html/emit "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)}))))
+    (is (= "<a href=\"https://s.example/x\">x</a>" (html/sanitize "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)}))))
   (testing "the repair that the HTML Standard doesn't make, switched off"
     (is (= "dont" (html/text (str "<p>don" (char 0x92) "t</p>") {:quirks? false}))))
   (testing "an option of nil is the default"
     (is (= "a\n\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags nil})))
     (is (= html/max-depth (:max-depth html/default-options)))))
 
-(deftest emitting-html
+(deftest sanitizing-html
+  (is (= "<p>a</p>" (html/sanitize "<p onclick=\"x()\">a</p><script>s()</script>")))
+  (is (= "<p>a &lt; b</p>" (html/sanitize "a < b")) "plain text as a paragraph")
+  (is (= "<p>a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><ol reversed></ol>"
+         (html/sanitize [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]
+                         [:input {:disabled true}]
+                         [:ol {:reversed true}]]))
+      "Hiccup, with only what's safe, and its text and values escaped")
+  (is (= "<p>x</p>" (html/sanitize [:p "x"])) "an element alone, without an attribute map")
+  (testing "safe Hiccup survives a trip through HTML"
+    (let [nodes (html/hiccup "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>")]
+      (is (= nodes (html/parse (html/sanitize nodes)))))))
+
+(deftest writing-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
-         (html/emit [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]] [:input {:disabled true}]])))
-  (testing "sanitized Hiccup survives a trip through HTML"
-    (let [nodes (html/sanitize (html/parse "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>"))]
-      (is (= nodes (html/parse (html/emit nodes))))))
-  (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map")
-  (is (= "<p>a</p>" (html/emit "<p onclick=\"x()\">a</p><script>s()</script>"))
-      "HTML in a string, which is sanitized")
+         (serializer/html [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]
+                           [:input {:disabled true}]])))
   (is (= "<p title=\"t\">x</p>c<input><p></p>"
-         (html/emit [[:p {(keyword "onmouseover=alert(1) x") "y" :title "t"} "x"]
-                     [(keyword "a b") "c"]
-                     [:input {:disabled false :value nil}]
-                     [:p []] [nil] 1]))
+         (serializer/html [[:p {(keyword "onmouseover=alert(1) x") "y" :title "t"} "x"]
+                           [(keyword "a b") "c"]
+                           [:input {:disabled false :value nil}]
+                           [:p []] [nil] 1]))
       "names that HTML can't hold, false and nil, and Hiccup of any shape"))
