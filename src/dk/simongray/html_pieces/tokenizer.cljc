@@ -398,10 +398,10 @@
 (defn ^:no-doc end-tag-at
   "What the less-than sign at `i` starts in a state of raw text, by the
   less-than sign, end tag open and end tag name states of that state:
-  [:end index name] for an appropriate end tag for `last`, where index is
-  the character after the name, or else [:text index text] for the text
-  to emit and the index to go on from."
-  [s n i last]
+  [:end index name] for an appropriate end tag for `last-start-tag`, where
+  index is the character after the name, or else [:text index text] for
+  the text to emit and the index to go on from."
+  [s n i last-start-tag]
   (let [after (+ i 2)]
     (cond
       (not= \/ (char-at s n (inc i)))
@@ -414,7 +414,7 @@
       (let [end  (run-end s n after not-alpha?)
             name (lower-ascii (subs s after end))
             next (char-at s n end)]
-        (if (and (= name last)
+        (if (and (= name last-start-tag)
                  next
                  (tag-end? next))
           [:end end name]
@@ -432,12 +432,12 @@
   "Read the RCDATA state, 13.2.5.2, when `rcdata?`, or else the RAWTEXT
   state, 13.2.5.3, from `i` onto the builder `text`, with their less-than
   sign and end tag states, 13.2.5.9 to 13.2.5.14, as [index token state]:
-  up to an appropriate end tag for `last`, or the end.
+  up to an appropriate end tag for `last-start-tag`, or the end.
 
   As in data-text, indexOf finds the less-than signs and, in RCDATA, the
   searcher `search` finds the ampersands, each kept until the reading
   passes it."
-  [s n i text last rcdata? search]
+  [s n i text last-start-tag rcdata? search]
   (loop [i   i
          lt  (index-of s n "<" i)
          amp (if rcdata? (long (search "&" i)) n)]
@@ -449,7 +449,7 @@
         [n nil :eof]
 
         (= lt stop)
-        (let [[kind j x] (end-tag-at s n lt last)]
+        (let [[kind j x] (end-tag-at s n lt last-start-tag)]
           (if (= :end kind)
             (end-tag s n j x)
             (do (append! text x)
@@ -468,8 +468,8 @@
 
   The states of escapes, 13.2.5.15 to 13.2.5.31, keep every character as
   text, so they only decide where a script ends: at the first appropriate
-  end tag for `last` outside a double escape. So the script is read by
-  searches for what changes the mode rather than a state for each
+  end tag for `last-start-tag` outside a double escape. So the script is
+  read by searches for what changes the mode rather than a state for each
   character, which the tests of html5lib show to be the same:
 
   - in a script, <!-- starts an escape, whose dashes can end it at once
@@ -479,9 +479,9 @@
     space, / or > ends the double one
 
   The searcher `search` finds each -->."
-  [s n i text last search]
+  [s n i text last-start-tag search]
   (let [closing     (fn [k]
-                      (let [[kind j name] (end-tag-at s n k last)]
+                      (let [[kind j name] (end-tag-at s n k last-start-tag)]
                         (when (= :end kind)
                           [j name])))
         script-tag? (fn [k offset]
@@ -767,15 +767,15 @@
      ;; Each reader gives [index token state]. Text goes onto the builder,
      ;; so that adjacent runs join, and every other token onto out after
      ;; the text before it. A start tag sets the state by text-states.
-     (loop [i 0 st state last last-start-tag out (transient [])]
+     (loop [i 0 st state last-start-tag last-start-tag out (transient [])]
        (if (= :eof st)
          (persistent! (with-text out text))
          (let [[j token st']
                (case st
                  :data        (data-text s n i text search)
-                 :rcdata      (raw-text s n i text last true search)
-                 :rawtext     (raw-text s n i text last false search)
-                 :script-data (script-text s n i text last search)
+                 :rcdata      (raw-text s n i text last-start-tag true search)
+                 :rawtext     (raw-text s n i text last-start-tag false search)
+                 :script-data (script-text s n i text last-start-tag search)
                  :plaintext   (plain-text s n i text)
                  :markup      (markup s n i search))
 
@@ -785,7 +785,7 @@
              (append! text token))
            (recur (long j)
                   (if start (get text-states start :data) st')
-                  (or start last)
+                  (or start last-start-tag)
                   (if (map? token)
                     (conj! (with-text out text) token)
                     out))))))))

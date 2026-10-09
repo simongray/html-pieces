@@ -74,12 +74,12 @@ Replicant, Reagent, `hiccup2.core/html` or `html/emit`. The older
 
 **NOTE:** relative URLs are left out, since a browser would resolve them
 against your page rather than the page the HTML came from. If you know
-that page, pass a `:url` function that makes them absolute:
+that page, pass a `:url-fn` that makes them absolute:
 
 ```clojure
 (def page (java.net.URI. "https://example.com/blog/"))
 
-(html/hiccup "<a href='/about'>About</a>" {:url #(str (.resolve page %))})
+(html/hiccup "<a href='/about'>About</a>" {:url-fn #(str (.resolve page %))})
 ;; => ([:a {:href "https://example.com/about"} "About"])
 ```
 

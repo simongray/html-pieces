@@ -111,14 +111,14 @@
     sanitize
   - :allowed-schemes, the schemes of the URLs that sanitize keeps, and
     :url-attributes and :url-list-attributes, the attributes that hold them
-  - :url, a function of a URL that gives the URL to keep, or nil
+  - :url-fn, a function of a URL that gives the URL to keep, or nil
   - :paragraph-tags and :line-tags, where text and markdown break lines
   - :max-quotes, how deeply markdown nests quotes
   - :links?, true for text to put the URL after each link
   - :quirks?, false to leave out a repair that the HTML Standard doesn't
     make: reading a C1 control in text as windows-1252
 
-  Each of them but :url, :links? and :quirks? is a var of the same name."
+  Each of them but :url-fn, :links? and :quirks? is a var of the same name."
   {:max-depth           max-depth
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
@@ -126,7 +126,7 @@
    :allowed-schemes     allowed-schemes
    :url-attributes      url-attributes
    :url-list-attributes url-list-attributes
-   :url                 identity
+   :url-fn              identity
    :paragraph-tags      paragraph-tags
    :line-tags           line-tags
    :max-quotes          max-quotes
@@ -178,20 +178,19 @@
 
 (defn- safe-attributes
   "The attributes `attrs` of an element `tag` that the :allowed-attributes
-  of `opts` has, with each URL as url/checked gives it by the :url and the
-  :allowed-schemes of `opts`, and without one that isn't allowed."
+  of `opts` has, with each URL as url/checked gives it by the :url-fn and
+  the :allowed-schemes of `opts`, and without one that isn't allowed."
   [opts tag attrs]
-  (let [{:keys [allowed-attributes url-attributes url-list-attributes]
-         rewrite :url
+  (let [{:keys [allowed-attributes url-attributes url-list-attributes url-fn]
          schemes :allowed-schemes} opts]
     (into {} (for [[k v] attrs
                    :when (contains? (get allowed-attributes tag) k)
                    :let  [v (cond
                               (url-attributes k)
-                              (url/checked rewrite schemes v)
+                              (url/checked url-fn schemes v)
 
                               (url-list-attributes k)
-                              (url/checked-list rewrite schemes
+                              (url/checked-list url-fn schemes
                                                 (= :srcset k) v)
 
                               :else
@@ -206,12 +205,12 @@
   - the elements and attributes of :allowed-tags and :allowed-attributes
     are kept
   - a URL is kept when its scheme is one of :allowed-schemes, after the
-    function :url has rewritten it
+    function :url-fn has rewritten it
   - the elements of :dropped-tags are removed with their content
   - any other element is replaced by its children
   - lists and tables lose the whitespace of their layout
 
-  The function :url can e.g. make a relative URL absolute against the page
+  The function :url-fn can e.g. make a relative URL absolute against the page
   that the HTML came from. A client would resolve it against its own page,
   so without such a function a relative URL is left out.
 
@@ -317,19 +316,19 @@
                    opts)))))
 
 (defn emit
-  "The Hiccup `nodes` as an HTML string, with the text escaped and the void
-  elements without end tags. HTML or plain text in a string is first made
-  Hiccup by hiccup with `opts`, and so sanitized.
+  "The Hiccup or HTML text `x` as an HTML string, with the text escaped and
+  the void elements without end tags. HTML or plain text in a string is
+  first made Hiccup by hiccup with `opts`, and so sanitized.
 
   Hiccup is written as it's given, except for a name that HTML can't hold:
   such an attribute is left out, and such an element is replaced by its
   children."
-  ([nodes]
-   (emit nodes {}))
-  ([nodes opts]
-   (serializer/html (if (string? nodes)
-                      (hiccup nodes opts)
-                      (nodes-of nodes opts)))))
+  ([x]
+   (emit x {}))
+  ([x opts]
+   (serializer/html (if (string? x)
+                      (hiccup x opts)
+                      (nodes-of x opts)))))
 
 #?(:clj
    (comment

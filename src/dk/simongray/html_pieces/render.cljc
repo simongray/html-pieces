@@ -84,13 +84,13 @@
       (str/includes? text pre-mark) (str/replace pre-mark ""))))
 
 (defn walk
-  "The `nodes` rendered as text by the functions `inline` and `element`,
-  starting from the map `context`.
+  "The `nodes` rendered as text by the functions `inline-fn` and
+  `element-fn`, starting from the map `context`.
 
-  The `inline` function renders a string, and takes the string and the
-  context. The `element` function renders an element, and takes its tag
-  and attributes, its rendered children and the context. The context
-  holds what these functions need, and walk reads two keys of it:
+  The `inline-fn` renders a string, and takes the string and the context.
+  The `element-fn` renders an element, and takes its tag and attributes,
+  its rendered children and the context. The context holds what these
+  functions need, and walk reads two keys of it:
 
   - :dropped-tags, the elements that render as nothing, as a browser
     shows no script
@@ -104,10 +104,10 @@
     that it's in, the element itself included
 
   Every line of the outermost pre starts with pre-mark."
-  [nodes inline element context]
+  [nodes inline-fn element-fn context]
   (letfn [(node [x outer]
             (cond
-              (string? x)             (inline x outer)
+              (string? x)             (inline-fn x outer)
               (not (tree/element? x)) ""
               :else
               (let [[tag attrs children] (tree/parts x)
@@ -122,11 +122,11 @@
                                 (= :code tag)       (counted :code)
                                 (= :blockquote tag) (counted :quotes))
                         inner (str/join (into [] (map #(node % ctx)) children))]
-                    (element [tag attrs]
-                             (if (and (= :pre tag) (not (:pre outer)))
-                               (marked-lines inner)
-                               inner)
-                             ctx))))))]
+                    (element-fn [tag attrs]
+                                (if (and (= :pre tag) (not (:pre outer)))
+                                  (marked-lines inner)
+                                  inner)
+                                ctx))))))]
     (tidy (str/join (into [] (map #(node % context)) nodes))
           (:quirks? context))))
 

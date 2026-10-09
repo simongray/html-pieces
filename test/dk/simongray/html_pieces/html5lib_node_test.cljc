@@ -109,21 +109,21 @@
         test         (get tests "tests")
         state        (get test "initialStates" ["Data state"])
         :let         [fix (if (get test "doubleEscaped") unescaped identity)]]
-    {:file        file
-     :description (get test "description")
-     :state       state
-     :input       (fix (get test "input"))
-     :last        (get test "lastStartTag")
-     :expected    (coalesced (for [t (get test "output")]
-                               (if (= "DOCTYPE" (first t))
-                                 ["DOCTYPE"]
-                                 (mapv #(if (string? %) (fix %) %) t))))}))
+    {:file           file
+     :description    (get test "description")
+     :state          state
+     :input          (fix (get test "input"))
+     :last-start-tag (get test "lastStartTag")
+     :expected       (coalesced (for [t (get test "output")]
+                                  (if (= "DOCTYPE" (first t))
+                                    ["DOCTYPE"]
+                                    (mapv #(if (string? %) (fix %) %) t))))}))
 
 (defn actual
   "The tokens of the test `c` in the form of the tests."
-  [{:keys [input state last]}]
+  [{:keys [input state last-start-tag]}]
   (coalesced (map test-form (tokenizer/tokens input {:state          (states state)
-                                                     :last-start-tag last
+                                                     :last-start-tag last-start-tag
                                                      :text-states    {}}))))
 
 (defn processing-instruction?

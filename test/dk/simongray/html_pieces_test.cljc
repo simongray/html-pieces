@@ -90,11 +90,11 @@
            (html/sanitize (html/parse "<a href=\"/rel\">rel</a><img src=\"/logout\" alt=\"pic\">"))))
     (is (= [[:a {:href "https://show.example/rel"} "rel"]]
            (html/sanitize (html/parse "<a href=\"/rel\">rel</a>")
-                          {:url #(str "https://show.example" %)})))
+                          {:url-fn #(str "https://show.example" %)})))
     (is (= [[:a {} "x"]]
            (html/sanitize (html/parse "<a href=\"https://ok/\">x</a>")
-                          {:url (constantly "javascript:alert(1)")}))
-        "what :url gives is checked too")
+                          {:url-fn (constantly "javascript:alert(1)")}))
+        "what :url-fn gives is checked too")
     (is (= [[:a {} "x"] [:a {} "y"]]
            (html/sanitize (html/parse (str "<a href=\"javascript&colon;alert(1)\">x</a>"
                                            "<a href=\"java&Tab;script:alert(1)\">y</a>"))))
@@ -242,7 +242,7 @@
     (is (= "a\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags #{} :line-tags #{:p}})))
     (is (= "x (ftp://x/)" (html/text "<a href=\"ftp://x/\">x</a>" {:links? true :allowed-schemes #{"ftp"}})))
     (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quotes 1})))
-    (is (= "<a href=\"https://s.example/x\">x</a>" (html/emit "<a href=\"/x\">x</a>" {:url #(str "https://s.example" %)}))))
+    (is (= "<a href=\"https://s.example/x\">x</a>" (html/emit "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)}))))
   (testing "the repair that the HTML Standard doesn't make, switched off"
     (is (= "dont" (html/text (str "<p>don" (char 0x92) "t</p>") {:quirks? false}))))
   (testing "an option of nil is the default"
