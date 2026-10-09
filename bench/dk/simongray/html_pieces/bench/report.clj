@@ -171,7 +171,7 @@
                   "as most ClojureScript apps do.")
              (bundle-table bundles))))))
 
-;; The README's tables
+;; The tables of doc/benchmarks.md
 
 (defn others
   "The `results` of the libraries but html-pieces, each with its `metric`
@@ -182,7 +182,7 @@
        (map #(str (:lib %) " " (show (metric %))))
        (str/join ", ")))
 
-(defn readme-table
+(defn summary-table
   "A table of the `results` of one fixture with the `title`, with a row for
   each area and platform where html-pieces has a `metric`, and its metric
   next to the other libraries', as `show` gives them."
@@ -201,7 +201,7 @@
             (show (metric own))
             (others row metric show)])))
 
-(defn readme-bundle-table
+(defn bundle-summary-table
   "A table of how much each of the `bundles` adds to the baseline of the
   tool that built it, gzipped."
   [bundles]
@@ -234,9 +234,9 @@
        (when node (str " and Node " node))
        "."))
 
-(defn readme
-  "The README's tables of the `report` of the benchmarks, for the largest
-  of its fixtures."
+(defn summary
+  "The tables of doc/benchmarks.md of the `report` of the benchmarks, for
+  the largest of its fixtures."
   [{:keys [environment fixtures results bundles] :as report}]
   (let [fixture (last fixtures)
         on-it   (filter #(= (:id fixture) (:fixture %)) results)]
@@ -244,15 +244,15 @@
      "\n\n"
      (cond-> []
        (seq on-it)
-       (conj (readme-table "Time per call" on-it (comp :median :time)
-                           duration))
+       (conj (summary-table "Time per call" on-it (comp :median :time)
+                            duration))
 
        (some :bytes on-it)
-       (conj (readme-table "Allocated per call" on-it :bytes size))
+       (conj (summary-table "Allocated per call" on-it :bytes size))
 
        (seq bundles)
-       (conj (readme-bundle-table bundles))
+       (conj (bundle-summary-table bundles))
 
-       ;; as wide as the prose of the README
+       ;; as wide as the prose of the docs
        :always
        (conj (wrapped (measured-on environment fixture) 74))))))

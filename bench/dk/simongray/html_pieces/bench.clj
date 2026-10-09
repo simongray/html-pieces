@@ -5,7 +5,7 @@
 
   Run them with clojure -X:bench after npm install. The report is printed
   as Markdown, and kept in target/bench with the results as EDN and the
-  README's tables in readme.md."
+  tables of doc/benchmarks.md in benchmarks.md."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -74,7 +74,8 @@
 
 (defn run
   "Run the benchmarks by `opts`, print the report, and keep it in
-  target/bench with the results and the README's tables. The options are:
+  target/bench with the results and the tables of doc/benchmarks.md. The
+  options are:
 
   - :only, the benchmarks to run, of :jvm, :node and :bundle
   - :areas, the areas to compare, e.g. #{:parse :text}
@@ -102,7 +103,7 @@
     (io/make-parents "target/bench/results.edn")
     (spit "target/bench/results.edn" (with-out-str (pprint/pprint results)))
     (spit "target/bench/results.md" markdown)
-    (spit "target/bench/readme.md" (report/readme results))
+    (spit "target/bench/benchmarks.md" (report/summary results))
     (println)
     (println markdown)))
 
