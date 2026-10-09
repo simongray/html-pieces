@@ -366,7 +366,7 @@
         (append! text (subs s i stop)))
       (cond
         (= n stop)   [n nil :eof]
-        (= lt stop)  [(inc lt) nil :markup]
+        (= lt stop)  [(inc lt) nil :tag-open]
         :else        (let [[chars j] (character-reference s n (inc amp) false)]
                        (append! text chars)
                        (recur j
@@ -623,11 +623,11 @@
     (str/ends-with? data "-")   (subs data 0 (- (count data) 1))
     :else                       data))
 
-(defn ^:no-doc comment-text
-  "Read a comment after its <!--, as [index token]. The comment states,
-  13.2.5.43 to 13.2.5.52, end a comment at once with > or ->, or else at
-  the first --> or --!>, so it's read by `search` for those rather than by
-  a state for each character."
+(defn ^:no-doc comment-start
+  "Read a comment from the comment start state, 13.2.5.43, after its <!--,
+  as [index token]. The comment states, up to 13.2.5.52, end a comment at
+  once with > or ->, or else at the first --> or --!>, so it's read by
+  `search` for those rather than by a state for each character."
   [s n i search]
   (let [c (char-at s n i)]
     (if (or (identical? \> c)
@@ -643,7 +643,7 @@
 
 ;; 13.2.5.53 to 13.2.5.68, DOCTYPE
 
-(defn ^:no-doc doctype-text
+(defn ^:no-doc doctype
   "Read a DOCTYPE after its <!DOCTYPE, as [index token]. Each DOCTYPE state
   of 13.2.5.53 to 13.2.5.68 ends it at the next > or the end, so it's read
   to there, without its name, identifiers or force-quirks flag."
@@ -669,16 +669,16 @@
   bogus comment, as it does outside SVG and MathML."
   [s n i search]
   (conj (cond
-          (starts-at? s i "--")           (comment-text s n (+ i 2) search)
-          (starts-at-ci? s n i "doctype") (doctype-text s n (+ i 7))
+          (starts-at? s i "--")           (comment-start s n (+ i 2) search)
+          (starts-at-ci? s n i "doctype") (doctype s n (+ i 7))
           (starts-at? s i "[CDATA[")      (bogus-comment s n (+ i 7) "[CDATA[")
           :else                           (bogus-comment s n i ""))
         :data))
 
-(defn ^:no-doc markup
-  "Read what a less-than sign starts, from `i` after it, as [index token
-  state], by the tag open state, 13.2.5.6, with the searcher `search`: a
-  tag, a comment or a DOCTYPE, or else the less-than sign as text."
+(defn ^:no-doc tag-open
+  "Read the tag open state, 13.2.5.6, from `i` after <, as [index token
+  state], with the searcher `search`: a tag, a comment or a DOCTYPE, or
+  else the less-than sign as text."
   [s n i search]
   (let [c (char-at s n i)]
     (cond
@@ -745,7 +745,7 @@
                  :rawtext     (raw-text s n i text last-start-tag false search)
                  :script-data (script-text s n i text last-start-tag search)
                  :plaintext   (plain-text s n i text)
-                 :markup      (markup s n i search))
+                 :tag-open    (tag-open s n i search))
 
                start (when (= :start-tag (:type token))
                        (:name token))]

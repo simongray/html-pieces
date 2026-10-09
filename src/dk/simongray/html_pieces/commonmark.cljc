@@ -218,7 +218,7 @@
       :else
       inner)))
 
-(defn with-breaks-fixed
+(defn fix-breaks
   "The Markdown `md` with two line breaks in a row as the end of a
   paragraph, and without a line break before a block or at the end, which
   Markdown shows as a backslash."

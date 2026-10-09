@@ -241,11 +241,10 @@
    (markdown x {}))
   ([x opts]
    (let [opts (options opts)]
-     (commonmark/with-breaks-fixed
-      (render/walk (nodes-of x opts)
-                   commonmark/inline
-                   commonmark/element
-                   opts)))))
+     (commonmark/fix-breaks (render/walk (nodes-of x opts)
+                                         commonmark/inline
+                                         commonmark/element
+                                         opts)))))
 
 (defn emit
   "The Hiccup or HTML text `x` as HTML, sanitized with `opts` first when
