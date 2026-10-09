@@ -11,9 +11,38 @@
 ;; punctuation. These start inline markup, with the | of tables and the ~
 ;; of strikethrough in GitHub Flavored Markdown.
 (def escapes
-  "The characters that Markdown escapes in text, by character."
-  {\\ "\\\\" \` "\\`" \* "\\*" \_ "\\_" \[ "\\[" \] "\\]" \< "\\<" \> "\\>"
-   \| "\\|" \~ "\\~"})
+  "The characters that Markdown escapes in text."
+  "\\`*_[]<>|~")
+
+;; String.indexOf takes the character as a primitive int on the JVM
+(defn char-in?
+  "Whether the character at `i` of the text `s` is one of the `chars`."
+  [chars s ^long i]
+  #?(:clj  (<= 0 (.indexOf ^String chars (int (.charAt ^String s (int i)))))
+     :cljs (<= 0 (.indexOf chars (.charAt s i)))))
+
+;; Most text holds none of the characters, and is then given back as it is
+(defn backslashed
+  "The text `s` with a backslash before each of the `chars` in it."
+  [s chars]
+  (let [n (count s)]
+    (loop [i 0 start 0 b nil]
+      (cond
+        (== i n)
+        (if b
+          (tokenizer/take-text! (tokenizer/append! b (subs s start n)))
+          s)
+
+        ;; the character itself starts the next run
+        (char-in? chars s i)
+        (let [b (or b (tokenizer/builder))]
+          (-> b
+              (tokenizer/append! (subs s start i))
+              (tokenizer/append! "\\"))
+          (recur (inc i) i b))
+
+        :else
+        (recur (inc i) start b)))))
 
 ;; CommonMark 0.31.2, section 2.5
 (def reference-start
@@ -32,7 +61,7 @@
   "The text `s` with the characters that start inline markup or a character
   reference escaped."
   [s]
-  (cond-> (str/escape s escapes)
+  (cond-> (backslashed s escapes)
     (str/includes? s "&") (str/replace reference-start (constantly "\\&"))))
 
 (defn escaped-text
@@ -60,7 +89,7 @@
   [s]
   (-> (str/replace s #"[\t\n\r]" "")
       (str/replace " " "%20")
-      (str/escape {\\ "\\\\" \( "\\(" \) "\\)" \< "\\<" \> "\\>"})
+      (backslashed "\\()<>")
       (str/replace reference-start (constantly "\\&"))))
 
 (defn backticks
@@ -83,6 +112,10 @@
                 " "
                 "")]
     (str ticks pad s pad ticks)))
+
+(def heading-levels
+  "The level of each heading element."
+  {:h1 1 :h2 2 :h3 3 :h4 4 :h5 5 :h6 6})
 
 (def emphasis
   "The Markdown marks around the text of each element of emphasis."
@@ -146,9 +179,8 @@
   "The Markdown of the element of `tag` and `attrs`, whose children render
   as `inner`, in the context `ctx`."
   [[tag attrs] inner ctx]
-  (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))]
-                  (parse-long n))
-        inside? (or (< (if (= :pre tag) 1 0) (:pre ctx 0))
+  (let [heading (heading-levels tag)
+        inside?(or (< (if (= :pre tag) 1 0) (:pre ctx 0))
                     (< (if (= :code tag) 1 0) (:code ctx 0)))
         safe?   #(and (string? %) (url/allowed? (:allowed-schemes ctx) %))
         quoted  #(->> (str/split-lines %)
@@ -223,7 +255,13 @@
   paragraph, and without a line break before a block or at the end, which
   Markdown shows as a backslash."
   [md]
-  (cond-> md
-    (str/includes? md "\\")
-    (-> (str/replace #"(?<!\\)\\\n(?:\\\n)+" "\n\n")
-        (str/replace #"(?<!\\)\\(?=\n\n|$)" ""))))
+  ;; each regex runs only where it can match, since most Markdown has
+  ;; neither case, and regexes are slow on the JVM
+  (let [md (cond-> md
+             (str/includes? md "\\\n\\\n")
+             (str/replace #"(?<!\\)\\\n(?:\\\n)+" "\n\n"))]
+    (cond-> md
+      (or (str/includes? md "\\\n\n")
+          (str/ends-with? md "\\")
+          (str/ends-with? md "\\\n"))
+      (str/replace #"(?<!\\)\\(?=\n\n|$)" ""))))

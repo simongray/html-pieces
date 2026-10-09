@@ -65,18 +65,36 @@
       (str/replace #"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]" ""))
     s))
 
+;; split by a one-character string, which the JVM does without a regex;
+;; the text has no carriage returns once shown
+(defn- lines
+  "The lines of the text `s`."
+  [s]
+  #?(:clj  (.split ^String s "\n")
+     :cljs (.split s "\n")))
+
+(defn- trimmed-line
+  "The `line` without the whitespace at its ends, unless it's a line of
+  preformatted text."
+  [line]
+  (if (str/starts-with? line pre-mark)
+    line
+    (whitespace/strip line)))
+
+(def squeeze-blanks-xf
+  "A transducer of lines that cuts each run of empty lines to one."
+  (comp (partition-by #(= "" %))
+        (mapcat #(if (= "" (first %)) [""] %))))
+
 (defn- tidy
   "The rendered `s` without control characters, by `quirks?`, trimmed, and
   with each run of blank lines cut to one. Its lines are trimmed too,
   except those of preformatted text."
   [s quirks?]
-  (let [trim-line #(if (str/starts-with? % pre-mark) % (whitespace/strip %))
-        lines     (->> (str/split-lines (shown s quirks?))
-                       (into [] (map trim-line))
-                       (str/join "\n"))
-        text      (whitespace/strip (cond-> lines
-                                      (str/includes? lines "\n\n\n")
-                                      (str/replace #"\n{3,}" "\n\n")))]
+  (let [text (->> (lines (shown s quirks?))
+                  (into [] (comp (map trimmed-line) squeeze-blanks-xf))
+                  (str/join "\n")
+                  (whitespace/strip))]
     (cond-> text
       (str/includes? text pre-mark) (str/replace pre-mark ""))))
 

@@ -82,6 +82,13 @@
   #?(:clj  (int c)
      :cljs (.charCodeAt c 0)))
 
+;; a primitive long, which the JVM doesn't box as it does a character
+(defn ^:no-doc code-at
+  "The code unit at `i` of the text `s`."
+  ^long [s ^long i]
+  #?(:clj  (long (int (.charAt ^String s (int i))))
+     :cljs (.charCodeAt s i)))
+
 (defn ^:no-doc upper?
   "Whether `c` is an ASCII upper alpha."
   [c]
@@ -235,7 +242,8 @@
 ;; Text builders: a StringBuilder on the JVM and an array of strings in
 ;; JavaScript
 
-(defn- builder
+(defn ^:no-doc builder
+  "A new, empty text builder."
   []
   #?(:clj  (StringBuilder.)
      :cljs #js []))
