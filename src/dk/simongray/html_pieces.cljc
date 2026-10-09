@@ -4,7 +4,21 @@
 
   TODO: an optional report of what parsing discarded and sanitizing
   removed, e.g. in metadata, so that a validator can tell the author of
-  the HTML what a client won't show."
+  the HTML what a client won't show.
+
+  TODO: in the browser, an option to parse with the browser's own
+  DOMParser and read its DOM as Hiccup, as hickory does, which would keep
+  the tokenizer, the tree builder and the table of character references
+  out of the bundle. It would come at a cost:
+
+  - the result could differ from the JVM's and Node's, since a browser
+    follows every rule of tree construction, e.g. it carries formatting on
+    past a misnested end tag, moves the content of tables, and rearranges
+    the html, head and body of a whole page
+  - Node has no DOM, so the tokenizer would still be needed there
+  - DOMParser reads a whole document, so a fragment would be the children
+    of its body, and :max-depth would have to be applied while reading the
+    DOM"
   (:require [dk.simongray.html-pieces.commonmark :as commonmark]
             [dk.simongray.html-pieces.render :as render]
             [dk.simongray.html-pieces.serializer :as serializer]
