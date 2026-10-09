@@ -173,7 +173,10 @@
                    (when (upper? c)
                      (.setCharAt sb k (char (+ (int c) 32))))))
                (.toString sb)))
-     :cljs (.replace s upper-pattern #(.toLowerCase %))))
+     ;; most names are in lower case already, and search ignores the g
+     :cljs (if (neg? (.search s upper-pattern))
+             s
+             (.replace s upper-pattern #(.toLowerCase %)))))
 
 (defn ^:no-doc without-nul
   "The text `s` with each NULL replaced by U+FFFD."
@@ -262,10 +265,12 @@
              (let [s (.toString ^StringBuilder b)]
                (.setLength ^StringBuilder b 0)
                s))
-     :cljs (let [s (.join b "")]
-             (set! (.-length b) 0)
-             (when-not (= "" s)
-               s))))
+     ;; most calls, before every tag, find the builder empty
+     :cljs (when (pos? (alength b))
+             (let [s (.join b "")]
+               (set! (.-length b) 0)
+               (when-not (= "" s)
+                 s)))))
 
 (defn- with-text
   "The transient vector of tokens `out`, with the text in the builder

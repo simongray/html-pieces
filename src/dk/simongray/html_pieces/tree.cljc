@@ -9,7 +9,8 @@
   SVG and MathML."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.tokenizer :as tokenizer]
-            [dk.simongray.html-pieces.whitespace :as whitespace]))
+            [dk.simongray.html-pieces.whitespace :as whitespace])
+  #?(:clj (:import [java.util ArrayList HashMap])))
 
 ;; HTML Standard, "Elements": the void elements, and param of older pages
 (def void-elements
@@ -72,79 +73,131 @@
     [(node 0) (node 1) (subvec node 2)]
     [(node 0) {} (subvec node 1)]))
 
-(defn merge-text
-  "The element `node` with each run of adjacent strings among its children
-  joined into one."
-  [node]
-  (let [text? #(string? (nth node %))
-        ;; only a comment or a stray end tag between two texts leaves a
-        ;; run, so most elements are returned as they are
-        runs? (loop [i 3]
-                (cond
-                  (<= (count node) i)             false
-                  (and (text? i) (text? (dec i))) true
-                  :else                           (recur (inc i))))]
-    (if runs?
-      (into []
-            (comp (partition-by string?)
-                  (mapcat #(if (string? (first %)) [(apply str %)] %)))
-            node)
-      node)))
+;; Mutable lists, an ArrayList on the JVM and an array in JavaScript, which
+;; the builder adds to in place. They're read with nth and count.
 
-;; The tree is built in a builder, a transient map of :stack, the open
-;; elements, the root first, each a transient vector [tag attrs &
-;; children], :open, how many are open by tag, so that an end tag nothing
-;; matches costs nothing to ignore, and :max-depth. Each function of the
-;; builder takes it and gives it back, through the values that assoc!,
-;; conj! and pop! return. Tags are the keywords of Hiccup.
+(defn- mutable-list
+  "A new, empty mutable list."
+  []
+  #?(:clj  (ArrayList.)
+     :cljs #js []))
+
+(defn- add!
+  "The mutable list `l` with `x` added at its end."
+  [l x]
+  #?(:clj  (.add ^ArrayList l x)
+     :cljs (.push l x))
+  l)
+
+(defn- set-last!
+  "The mutable list `l` with its last item replaced by `x`."
+  [l x]
+  #?(:clj  (.set ^ArrayList l (int (dec (.size ^ArrayList l))) x)
+     :cljs (aset l (dec (alength l)) x))
+  l)
+
+(defn- remove-last!
+  "Remove the last item of the mutable list `l`, and give it."
+  [l]
+  #?(:clj  (.remove ^ArrayList l (int (dec (.size ^ArrayList l))))
+     :cljs (.pop l)))
+
+;; The tree is built in a builder of the stack of open elements, the root
+;; first, how many are open of each tag, so that an end tag nothing
+;; matches costs nothing to ignore, the max-depth, and whether a line feed
+;; at the start of the next text is dropped. An open element is a mutable
+;; list of its tag, its attributes and its children, which becomes a
+;; vector when it closes. Each function of the builder changes it in place
+;; and gives it back.
+
+(deftype Builder [stack counts max-depth drop-newline?])
+
+(defn- new-builder
+  "A builder with only the root open, which nests elements at most
+  `max-depth` deep."
+  [max-depth]
+  (Builder. (add! (mutable-list) (-> (mutable-list) (add! :root) (add! {})))
+            #?(:clj (HashMap.) :cljs (js/Map.))
+            max-depth
+            (volatile! false)))
 
 (defn- top
   "The stack index of the top element of the builder `b`."
-  [b]
-  (dec (count (:stack b))))
+  [^Builder b]
+  (dec (count (.-stack b))))
+
+(defn- element-at
+  "The open element at the stack index `i` of the builder `b`."
+  [^Builder b i]
+  (nth (.-stack b) i))
 
 (defn- tag-at
   "The tag of the open element at the stack index `i` of the builder `b`."
   [b i]
-  (nth (nth (:stack b) i) 0))
+  (nth (element-at b i) 0))
+
+(defn- too-deep?
+  "Whether the open elements of the builder `b` are nested as deep as its
+  max-depth allows, or deeper."
+  [^Builder b]
+  (> (count (.-stack b)) (.-max-depth b)))
+
+(defn- drop-newline!
+  "The builder `b`, set to drop a line feed at the start of the next text
+  when `drop?`."
+  [^Builder b drop?]
+  (vreset! (.-drop-newline? b) drop?)
+  b)
+
+;; counted by the name of the tag, since two ClojureScript keywords of the
+;; same name needn't be identical
+(defn- open-count
+  "How many elements of `tag` are open in the builder `b`."
+  [^Builder b tag]
+  (or #?(:clj  (.get ^HashMap (.-counts b) (name tag))
+         :cljs (.get (.-counts b) (name tag)))
+      0))
 
 (defn- open?
   "Whether an element of one of `tags` is open in the builder `b`."
   [b tags]
-  (let [open (:open b)]
-    (some #(pos? (get open % 0)) tags)))
+  (some #(pos? (open-count b %)) tags))
 
 (defn- update-count!
   "The builder `b` with the count of the open elements of `tag` changed by
   `f`."
-  [b tag f]
-  (let [open (:open b)]
-    (assoc! b :open (assoc! open tag (f (get open tag 0))))))
+  [^Builder b tag f]
+  (let [n (f (open-count b tag))]
+    #?(:clj  (.put ^HashMap (.-counts b) (name tag) n)
+       :cljs (.set (.-counts b) (name tag) n)))
+  b)
 
 (defn- append!
-  "The builder `b` with `child` appended to its top element."
+  "The builder `b` with `child` appended to its top element, and joined to
+  the text before it when both are text."
   [b child]
-  (let [stack (:stack b)
-        i     (top b)]
-    (assoc! b :stack (assoc! stack i (conj! (nth stack i) child)))))
+  (let [element (element-at b (top b))
+        before  (nth element (dec (count element)))]
+    (if (and (string? child) (string? before))
+      (set-last! element (str before child))
+      (add! element child))
+    b))
 
 (defn- push!
   "The builder `b` with an element of `tag` and `attrs` opened on top."
-  [b tag attrs]
-  (-> b
-      (assoc! :stack (conj! (:stack b) (transient [tag attrs])))
-      (update-count! tag inc)))
+  [^Builder b tag attrs]
+  (add! (.-stack b) (-> (mutable-list) (add! tag) (add! attrs)))
+  (update-count! b tag inc))
 
+;; vec takes over a small array in ClojureScript, which is safe since a
+;; closed element is never changed again
 (defn- close-top!
-  "The builder `b` with its top element closed into its parent. The text of
-  the element is joined here, once, rather than on every token."
-  [b]
-  (let [stack (:stack b)
-        node  (persistent! (nth stack (top b)))]
+  "The builder `b` with its top element closed into its parent."
+  [^Builder b]
+  (let [node (vec (remove-last! (.-stack b)))]
     (-> b
-        (assoc! :stack (pop! stack))
-        (update-count! (nth node 0) dec)
-        (append! (merge-text node)))))
+        (update-count! (node 0) dec)
+        (append! node))))
 
 (defn open-index
   "The stack index of the nearest open element of the builder `b` whose
@@ -164,9 +217,9 @@
   "The builder `b` with the open elements closed from the top down to the
   nearest one whose tag is in `tags`, that one included. Nothing closes
   when one of `boundaries` comes first or none of `tags` is open."
-  [b tags boundaries]
+  [^Builder b tags boundaries]
   (if-let [i (open-index b tags boundaries)]
-    (loop [b b k (- (count (:stack b)) i)]
+    (loop [b b k (- (count (.-stack b)) i)]
       (if (zero? k)
         b
         (recur (close-top! b) (dec k))))
@@ -189,7 +242,7 @@
             b)]
     (if (or (void-elements tag)
             (and self-closing? (or (foreign-roots tag) (open? b foreign-roots)))
-            (> (count (:stack b)) (:max-depth b)))
+            (too-deep? b))
       (append! b [tag attrs])
       (push! b tag attrs))))
 
@@ -197,13 +250,38 @@
   "U+0000 NULL as a text, which the tree builder drops from text."
   (str tokenizer/nul))
 
+;; ClojureScript makes a new keyword on each call, while the JVM interns
+;; them. A limit, as in jsoup's cache of names, keeps made-up names from
+;; filling the memory.
+#?(:cljs
+   (def name-keywords
+     "The keyword of each element or attribute name that's been read, by
+     name, up to a limit."
+     (js/Map.)))
+
+(defn name-keyword
+  "The keyword of the element or attribute name `s`."
+  [s]
+  #?(:clj  (keyword s)
+     :cljs (or (.get name-keywords s)
+               (let [k (keyword s)]
+                 (when (< (.-size name-keywords) 512)
+                   (.set name-keywords s k))
+                 k))))
+
+;; update-keys makes a transient even when there are no attributes
+(defn- attributes
+  "The attributes `attrs` of a start tag token, by keyword."
+  [attrs]
+  (cond-> attrs
+    (seq attrs) (update-keys name-keyword)))
+
 (defn- step!
   "The builder `b` after the `token`, as a few of the rules of 13.2.6.4.7
   of the HTML Standard build the tree."
-  [b token]
-  (let [drop-newline? (:drop-newline? b)
-        b             (cond-> b
-                        drop-newline? (dissoc! :drop-newline?))]
+  [^Builder b token]
+  (let [drop-newline? @(.-drop-newline? b)
+        b             (drop-newline! b false)]
     (cond
       (string? token)
       (let [text (cond-> token
@@ -215,13 +293,13 @@
 
       (= :start-tag (:type token))
       (let [{:keys [name attrs self-closing?]} token
-            tag                                (keyword name)]
-        (cond-> (open-element! b tag (update-keys attrs keyword) self-closing?)
-          (newline-dropping tag) (assoc! :drop-newline? true)))
+            tag                                (name-keyword name)]
+        (cond-> (open-element! b tag (attributes attrs) self-closing?)
+          (newline-dropping tag) (drop-newline! true)))
 
       ;; an end tag br is a line break
       (= :end-tag (:type token))
-      (let [tag (keyword (:name token))]
+      (let [tag (name-keyword (:name token))]
         (if (= :br tag)
           (open-element! b :br {} false)
           (close-through! b #{tag} #{})))
@@ -233,13 +311,10 @@
   "The Hiccup nodes that the HTML `tokens` build, nested at most
   `max-depth` deep."
   [tokens max-depth]
-  (let [builder (transient {:stack     (transient [(transient [:root {}])])
-                            :open      (transient {})
-                            :max-depth max-depth})]
-    (loop [b (reduce step! builder tokens)]
-      (if (= 1 (count (:stack b)))
-        (apply list (drop 2 (merge-text (persistent! (nth (:stack b) 0)))))
-        (recur (close-top! b))))))
+  (loop [b (reduce step! (new-builder max-depth) tokens)]
+    (if (zero? (top b))
+      (apply list (drop 2 (element-at b 0)))
+      (recur (close-top! b)))))
 
 (defn- decoded
   "The text `s` with its character references decoded and every other
