@@ -105,7 +105,8 @@
 
   The `inline-fn` takes a string and the context, and the `element-fn`
   takes a vector of the tag and attributes, the rendered children and the
-  context. Inside an element, the context also has:
+  context. The nodes themselves render as an element whose tag is nil.
+  Inside an element, the context also has:
 
   - :list, :ul or :ol inside a list
   - :index, a volatile that counts the list items
@@ -150,7 +151,9 @@
 
               :else
               ""))]
-    (tidy (str/join (into [] (map #(node % context)) nodes))
+    (tidy (element-fn [nil {}]
+                      (str/join (into [] (map #(node % context)) nodes))
+                      context)
           (:quirks? context))))
 
 (defn list-marker

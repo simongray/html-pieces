@@ -57,6 +57,20 @@
   ordered list and the . or ) after them."
   #"^([\t\n\f\r ]*)(?:([#+=-])|([0-9]{1,9})([.)]))")
 
+;; CommonMark 0.31.2, section 5.2: the digits of an ordered list and the
+;; . or ) after them can come from two texts. A Latin-1 mark keeps strings
+;; compact on the JVM.
+(def digits-mark
+  "The mark at the end of a text of digits alone, until the block around
+  it is rendered. It's a C1 control that stands for no character of
+  windows-1252, which rendered text leaves out."
+  (str (char 0x81)))
+
+(def digits-run
+  "The characters that can come before a mark of digits on a line that
+  they start: digits, spaces and marks."
+  (str "0123456789 " digits-mark))
+
 (defn escaped
   "The text `s` with the characters that start inline markup or a character
   reference escaped."
@@ -68,18 +82,25 @@
   "The text `s` with what Markdown would read as markup escaped, including
   the start of a block."
   [s]
-  (let [s    (escaped s)
-        n    (count s)
-        lead (tokenizer/char-at s n (tokenizer/skip-whitespace s n 0))]
+  (let [s     (escaped s)
+        n     (count s)
+        start (tokenizer/skip-whitespace s n 0)
+        lead  (tokenizer/char-at s n start)]
     ;; any text can end up at the start of a line
-    (if (and lead (or (tokenizer/digit? lead) (#{\# \+ \= \-} lead)))
+    (cond
+      (not (and lead (or (tokenizer/digit? lead) (#{\# \+ \= \-} lead))))
+      s
+
+      (== n (tokenizer/run-end s n start tokenizer/not-digit?))
+      (str s digits-mark)
+
+      :else
       (str/replace s
                    block-start
                    (fn [[_ space marker digits end]]
                      (if marker
                        (str space "\\" marker)
-                       (str space digits "\\" end))))
-      s)))
+                       (str space digits "\\" end)))))))
 
 ;; CommonMark 0.31.2, section 6.3, without the tabs and line breaks that a
 ;; browser drops from a URL
@@ -156,12 +177,47 @@
       (str (subs inner 0 start) mark (subs inner start end) mark
            (subs inner end)))))
 
+(defn digits-start?
+  "Whether the digits before the index `i` of the Markdown `md` start a
+  line or `md`, after the space in front."
+  [md i]
+  (loop [j (dec i)]
+    (cond
+      (neg? j)                   true
+      (char-in? digits-run md j) (recur (dec j))
+      :else                      (identical? \newline (nth md j)))))
+
+;; Most blocks hold no mark, or one at the end, and are given back as they
+;; are. The block around a mark at the end decides it.
+(defn fix-digits
+  "The Markdown `md` of a block with a backslash for each mark of digits
+  that start a line or `md` before a . or ), and without the other marks
+  but one at its end."
+  [md]
+  (let [n (count md)
+        i (tokenizer/index-of md n digits-mark 0)]
+    (if (<= (dec n) i)
+      md
+      (let [b (tokenizer/builder)]
+        (loop [start 0 i i]
+          (if (== n i)
+            (tokenizer/take-text! (tokenizer/append! b (subs md start n)))
+            (let [after (inc i)]
+              (tokenizer/append! b (subs md start i))
+              (cond
+                (== n after)
+                (tokenizer/append! b digits-mark)
+
+                (and (char-in? ".)" md after) (digits-start? md i))
+                (tokenizer/append! b "\\"))
+              (recur after (tokenizer/index-of md n digits-mark after)))))))))
+
 (defn block-text
-  "The Markdown `inner` of a block without the line breaks and the
-  whitespace at its ends."
+  "The Markdown `inner` of a block with its marks of digits fixed, and
+  without the line breaks and the whitespace at its ends."
   [inner]
   (whitespace/strip
-   (cond-> inner
+   (cond-> (fix-digits inner)
      (str/includes? inner "\\\n")
      (-> (str/replace #"^(?:[\t\n\f\r ]*\\\n)+" "")
          (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
@@ -246,6 +302,10 @@
 
       ((:line-tags ctx) tag)
       (str (block-text inner) "\n")
+
+      ;; the nodes themselves, whose marks of digits are all decided here
+      (nil? tag)
+      (fix-digits inner)
 
       :else
       inner)))

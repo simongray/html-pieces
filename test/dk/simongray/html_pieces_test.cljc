@@ -213,6 +213,11 @@
            (html/markdown "<p>&lt;img src=x onerror=alert(1)&gt; and [y](javascript:alert(2)) 5*3*2 &amp;colon; a_b ~x~ |</p>")))
     (is (= "\\# not a heading\n\n1\\. not a list\n\n\\- nor this\n\n- \\# x"
            (html/markdown "<p># not a heading</p><p>1. not a list</p><p>- nor this</p><ul><li># x</li></ul>"))))
+  (testing "the start of a block from two texts"
+    (is (= "1\\. x\n\n- 1\\) y\n\n> 1\\. z\n\na\\\n12\\. w, years1. **3**. v"
+           (html/markdown "<p>1<span>. x</span></p><ul><li>1<span>) y</span></li></ul><blockquote>1<span>. z</span></blockquote><p>a<br>1<a href=\"javascript:x\">2</a>. w, years<sup>1</sup>. <b>3</b>. v</p>")))
+    (is (= "1\\. x" (html/markdown [:p "1" ". x"])) "Hiccup")
+    (is (= "1\\. x" (html/markdown "1<span>. x</span>")) "at the top level"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "
