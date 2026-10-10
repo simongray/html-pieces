@@ -246,10 +246,12 @@
 ;; JavaScript
 
 (defn ^:no-doc builder
-  "A new, empty text builder."
-  []
-  #?(:clj  (StringBuilder.)
-     :cljs #js []))
+  "A new, empty text builder, with room for `n` characters on the JVM."
+  ([]
+   (builder 16))
+  ([n]
+   #?(:clj  (StringBuilder. (int n))
+      :cljs #js [])))
 
 (defn ^:no-doc append!
   "Append the string `x` to the text builder `b`."
