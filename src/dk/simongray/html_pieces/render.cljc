@@ -100,19 +100,20 @@
 
 (defn walk
   "The `nodes`, built Hiccup when `built?`, rendered as text by the
-  functions `inline-fn` and `element-fn`, starting from the map `context`
-  of options.
+  functions `inline-fn`, `element-fn` and `join-fn`, starting from the map
+  `context` of options.
 
-  The `inline-fn` takes a string and the context, and the `element-fn`
-  takes a vector of the tag and attributes, the rendered children and the
-  context. The nodes themselves render as an element whose tag is nil.
+  The `inline-fn` takes a string and the context, the `element-fn` takes
+  a vector of the tag and attributes, the rendered children and the
+  context, and the `join-fn` takes a vector of nodes next to each other,
+  rendered. The nodes themselves render as an element whose tag is nil.
   Inside an element, the context also has:
 
   - :list, :ul or :ol inside a list
   - :index, a volatile that counts the list items
   - :pre, :code and :quotes, how many pre, code and blockquote elements
     it's in, the element itself included"
-  [nodes built? inline-fn element-fn context]
+  [nodes built? inline-fn element-fn join-fn context]
   (letfn [(node [x outer]
             (cond
               (string? x)
@@ -135,7 +136,7 @@
                                 (= :pre tag)        (counted :pre)
                                 (= :code tag)       (counted :code)
                                 (= :blockquote tag) (counted :quotes))
-                        inner (str/join (into [] (map #(node % ctx)) children))]
+                        inner (join-fn (into [] (map #(node % ctx)) children))]
                     (element-fn [tag attrs]
                                 (if (and (= :pre tag) (not (:pre outer)))
                                   (marked-lines inner)
@@ -144,7 +145,7 @@
 
               ;; e.g. of a for, spliced in as every Hiccup renderer does
               (seq? x)
-              (str/join (into [] (map #(node % outer)) x))
+              (join-fn (into [] (map #(node % outer)) x))
 
               (number? x)
               (inline-fn (str x) outer)
@@ -152,7 +153,7 @@
               :else
               ""))]
     (tidy (element-fn [nil {}]
-                      (str/join (into [] (map #(node % context)) nodes))
+                      (join-fn (into [] (map #(node % context)) nodes))
                       context)
           (:quirks? context))))
 

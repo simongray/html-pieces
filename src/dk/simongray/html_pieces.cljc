@@ -19,7 +19,8 @@
   - DOMParser reads a whole document, so a fragment would be the children
     of its body, and :max-depth would have to be applied while reading the
     DOM"
-  (:require [dk.simongray.html-pieces.commonmark :as commonmark]
+  (:require [clojure.string :as str]
+            [dk.simongray.html-pieces.commonmark :as commonmark]
             [dk.simongray.html-pieces.render :as render]
             [dk.simongray.html-pieces.serializer :as serializer]
             [dk.simongray.html-pieces.tokenizer :as tokenizer]
@@ -325,6 +326,7 @@
                   (not (string? x))
                   render/text-inline
                   render/text-element
+                  str/join
                   opts))))
 
 (defn markdown
@@ -340,6 +342,7 @@
                                          (not (string? x))
                                          commonmark/inline
                                          commonmark/element
+                                         str/join
                                          opts)))))
 
 #?(:clj
