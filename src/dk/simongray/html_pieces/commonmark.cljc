@@ -73,6 +73,15 @@
   whitespace nor hidden."
   (complement #(or (whitespace/char? %) (hidden? %))))
 
+(def digits-end?
+  "Whether a character ends the digits of an ordered list: it's neither a
+  digit nor hidden."
+  (complement #(or (tokenizer/digit? %) (hidden? %))))
+
+(def hidden-end?
+  "Whether a character ends a run of hidden characters."
+  (complement hidden?))
+
 ;; CommonMark 0.31.2, sections 4.1 to 4.3 and 5.2
 (def block-start
   "What starts a heading, a thematic break or a list at the start of a
@@ -94,8 +103,8 @@
 
 (def digits-run
   "The characters that can come before a mark of digits on a line that
-  they start: digits, spaces and marks."
-  (str "0123456789 " digits-mark))
+  they start: digits, spaces and hidden characters, marks among them."
+  (apply str "0123456789 " (filter hidden? (map char (range 160)))))
 
 (defn escaped
   "The text `s` with the characters that start inline markup or a character
@@ -117,7 +126,7 @@
       (not (and lead (or (tokenizer/digit? lead) (#{\# \+ \= \-} lead))))
       s
 
-      (== n (tokenizer/run-end s n start tokenizer/not-digit?))
+      (== n (tokenizer/run-end s n start digits-end?))
       (str s digits-mark)
 
       :else
@@ -332,15 +341,21 @@
         (loop [start 0 i i]
           (if (== n i)
             (tokenizer/take-text! (tokenizer/append! b (subs md start n)))
-            (let [after (inc i)]
+            ;; the character after the mark is past any hidden characters,
+            ;; and the last of the marks in front of it decides
+            (let [after (tokenizer/run-end md n (inc i) hidden-end?)
+                  j     (tokenizer/index-of md n digits-mark (inc i))]
               (tokenizer/append! b (subs md start i))
               (cond
+                (< j after)
+                nil
+
                 (== n after)
                 (tokenizer/append! b digits-mark)
 
                 (and (char-in? ".)" md after) (digits-start? md i))
                 (tokenizer/append! b "\\"))
-              (recur after (tokenizer/index-of md n digits-mark after)))))))))
+              (recur (inc i) j))))))))
 
 (defn block-text
   "The Markdown `inner` of a block with its marks of digits fixed, and

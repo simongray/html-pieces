@@ -260,7 +260,12 @@
            (html/markdown "<p>&#1;- x</p><p> &#141; 1. y</p><p>&#129;# z</p><p>1&#27;2) w</p>")))
     (is (= "\\- x\n\n1\\. y" (html/markdown [[:p "\u0001- x"] [:p "\u00011. y"]])) "Hiccup")
     (is (= "\\- x" (html/markdown [:p (str (char 0x85) "- x")] {:quirks? false}))
-        "a C1 control without :quirks?"))
+        "a C1 control without :quirks?")
+    (is (= "1\\. x\n\n1\\. y\n\n12\\) z"
+           (html/markdown [[:p "1\u0001" ". x"] [:p "\u0001" "1" "\u0001" ". y"] [:p "1" "\u0001" "2" ") z"]]))
+        "from two texts")
+    (is (= "1\\. x" (html/markdown [:p "1" (str (char 0x81)) ". x"]))
+        "U+0081, the mark of digits itself, with one backslash"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "
