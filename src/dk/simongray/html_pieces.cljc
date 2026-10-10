@@ -154,17 +154,23 @@
     opts))
 
 (defn parse
-  "The HTML `s` as a sequence of Hiccup nodes, nested at most as deep as the
-  :max-depth of `opts`. Nothing is sanitized, so for HTML to render, use
-  hiccup or sanitize.
+  "The HTML or Hiccup `x`, read by `opts`, as a sequence of Hiccup nodes:
+  text, and elements that each have an attribute map. Nothing is
+  sanitized, so for HTML to render, use hiccup or sanitize.
 
-  Unclosed elements close where a browser closes them, but formatting isn't
-  carried on past a misnested end tag. The html, head and body elements of
-  a whole page stay as they're written. Comments and DOCTYPEs are left out."
-  ([s]
-   (parse s {}))
-  ([s opts]
-   (tree/build (tokenizer/tokens s) (:max-depth (options opts)))))
+  HTML is nested at most as deep as :max-depth. Unclosed elements close
+  where a browser closes them, but formatting isn't carried on past a
+  misnested end tag. The html, head and body elements of a whole page stay
+  as they're written. Comments and DOCTYPEs are left out.
+
+  Hiccup is read as every Hiccup renderer reads it, e.g. a tag such as
+  :p.x is a p with a class."
+  ([x]
+   (parse x {}))
+  ([x opts]
+   (if (string? x)
+     (tree/build (tokenizer/tokens x) (:max-depth (options opts)))
+     (apply list (mapcat tree/canonical (tree/nodes x))))))
 
 (def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
@@ -197,10 +203,9 @@
   text."
   [x opts]
   (cond
-    (string? x)       (if (markup? x) (parse x opts) (tree/paragraphs x))
-    (tree/element? x) [x]
-    (sequential? x)   x
-    :else             [x]))
+    (not (string? x)) (tree/nodes x)
+    (markup? x)       (parse x opts)
+    :else             (tree/paragraphs x)))
 
 ;; What :element-fn gives is sanitized again by the same walk, but without
 ;; :url-fn and :base-url, which its URLs have been through, and without

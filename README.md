@@ -80,9 +80,9 @@ are closed where a browser closes them. Plain text works too: it becomes
 paragraphs and line breaks, so you can give them any field without
 checking what's in it first.
 
-Besides HTML and plain text, `hiccup`, `sanitize`, `text` and `markdown`
-take Hiccup that you've built or changed yourself, and read it as every
-Hiccup renderer does:
+Besides HTML and plain text, every function but `markup?` takes Hiccup
+that you've built or changed yourself, and reads it as every Hiccup
+renderer does:
 
 - a seq among the children, e.g. from `for` or `map`, is spliced in
 - nil is skipped
@@ -163,6 +163,22 @@ an attribute that isn't allowed. To keep it as it is, e.g. with a class
 that isn't allowed, also pass `:trusted-element-fn? true`. For the text
 or Markdown of the result, give `text` or `markdown` what `hiccup`
 returns.
+
+Parsing
+-------
+
+To read HTML without sanitizing it, e.g. to find the links of a page, use
+`parse`. Each element of its tree is a vector of the tag, an attribute
+map and the children, and text is a string:
+
+```clojure
+(html/parse "<p class=x>See <a href=/about>this</a><script>track()</script>")
+;; => ([:p {:class "x"} "See " [:a {:href "/about"} "this"]
+;;      [:script {} "track()"]])
+```
+
+Given Hiccup that you've built, `parse` gives it the same shape, so that
+you can walk any Hiccup the same way.
 
 Principles
 ----------

@@ -362,6 +362,18 @@
     (let [x [:div.intro [:p.lead "Count: " 42] [:ul (for [s ["one" "two"]] [:li s])] nil]]
       (is (= "<div><p>Count: 42</p><ul><li>one</li><li>two</li></ul></div>" (html/sanitize x)))
       (is (= "Count: 42\n\n- one\n- two" (html/text x)))))
+  (testing "parsed into the shape of parsed HTML, with nothing sanitized"
+    (is (= [[:div {:id "main" :class "intro"}
+             [:p {:onclick "x()"} "Count: " "42"]
+             [:ul {} [:li {} "one"] [:li {} "two"]]]]
+           (html/parse [:div#main.intro
+                        [:p {:onclick "x()"} "Count: " 42]
+                        [:ul (for [s ["one" "two"]] [:li s])]
+                        nil])))
+    (is (= [[:p {} "a"] "b"] (html/parse [[:p "a"] "b"])) "nodes")
+    (is (= ["x"] (html/parse (list (list "x")))) "nodes in a seq")
+    (let [tree (html/parse "<p class=x>a<script>b</script></p>")]
+      (is (= tree (html/parse tree)) "parsed HTML as it is")))
   (testing "but HTML is read as HTML, where a tag can hold a dot or a #"
     (is (= "<b>a</b>x" (html/sanitize "<b>a</b><p.lead>x</p.lead>")))
     (is (= "ax" (html/text "<b>a</b><p.lead>x</p.lead>")))))

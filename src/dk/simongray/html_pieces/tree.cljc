@@ -308,6 +308,15 @@
                                  class)))]
           children)))
 
+(defn nodes
+  "The Hiccup `x` as a sequence of nodes: an element alone, nodes, or one
+  other node."
+  [x]
+  (cond
+    (element? x)    [x]
+    (sequential? x) x
+    :else           [x]))
+
 (defn canonical
   "The nodes of the built Hiccup `x`, as a parser gives them: text, and
   elements with their tags written out and an attribute map."
