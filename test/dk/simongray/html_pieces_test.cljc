@@ -217,7 +217,10 @@
     (is (= "1\\. x\n\n- 1\\) y\n\n> 1\\. z\n\na\\\n12\\. w, years1. **3**. v"
            (html/markdown "<p>1<span>. x</span></p><ul><li>1<span>) y</span></li></ul><blockquote>1<span>. z</span></blockquote><p>a<br>1<a href=\"javascript:x\">2</a>. w, years<sup>1</sup>. <b>3</b>. v</p>")))
     (is (= "1\\. x" (html/markdown [:p "1" ". x"])) "Hiccup")
-    (is (= "1\\. x" (html/markdown "1<span>. x</span>")) "at the top level"))
+    (is (= "1\\. x" (html/markdown "1<span>. x</span>")) "at the top level")
+    (is (= "\\# x\n\n1\\. y"
+           (html/markdown "<p><img alt=\"# x\"></p><p><img src=\"javascript:x\" alt=\"1\">. y</p>"))
+        "an alt text as text"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "

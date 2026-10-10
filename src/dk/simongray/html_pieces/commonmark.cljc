@@ -261,10 +261,10 @@
 
       (= :img tag)
       (let [src (:src attrs)
-            alt (escaped (whitespace/collapse (str (:alt attrs))))]
+            alt (whitespace/collapse (str (:alt attrs)))]
         (if (safe? src)
-          (str "![" alt "](" (destination src) ")")
-          alt))
+          (str "![" (escaped alt) "](" (destination src) ")")
+          (escaped-text alt)))
 
       (= :a tag)
       (let [href (:href attrs)]
