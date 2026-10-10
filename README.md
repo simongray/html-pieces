@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.1.0"}
+dk.simongray/html-pieces {:mvn/version "0.2.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
