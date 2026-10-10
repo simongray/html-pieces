@@ -107,6 +107,9 @@
   others are:
 
   - :url-fn, a function of a URL that gives the URL to keep, or nil
+  - :element-fn, a function of an element that's kept, which gives the
+    Hiccup to put in its place
+  - :trusted-element-fn?, true to keep what :element-fn gives unchecked
   - :links?, true to put the URL of each link after it in plain text
   - :quirks?, true to read a C1 control character as windows-1252 in text
     and Markdown, a repair that the HTML Standard doesn't make"
@@ -118,6 +121,8 @@
    :url-attributes      url-attributes
    :url-list-attributes url-list-attributes
    :url-fn              identity
+   :element-fn          nil
+   :trusted-element-fn? false
    :paragraph-tags      paragraph-tags
    :line-tags           line-tags
    :max-quote-depth     max-quote-depth
@@ -181,6 +186,66 @@
     (sequential? x)   x
     :else             [x]))
 
+;; What :element-fn gives is sanitized again by the same walk, but without
+;; :url-fn, which its URLs have been through, and without :element-fn, so
+;; that it's called once for each element. An element that it gives back
+;; as it is costs nothing more.
+(defn- sanitized
+  "The `nodes`, built Hiccup when `built?`, with only what `opts` allows."
+  [nodes built? opts]
+  (let [allowed    (:allowed-tags opts)
+        dropped    (:dropped-tags opts)
+        element-fn (:element-fn opts)
+        trusted?   (:trusted-element-fn? opts)
+        again      (when element-fn
+                     (assoc opts :element-fn nil :url-fn identity))
+        layout?    #(and (string? %) (whitespace/blank? %))]
+    (letfn [(node [x]
+              (cond
+                (string? x)
+                [x]
+
+                ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so
+                ;; only Hiccup that's built has shorthand tags
+                (and built? (tree/element? x) (tree/shorthand? (x 0)))
+                (node (tree/expanded x))
+
+                (tree/element? x)
+                (let [[tag attrs children] (tree/parts x)]
+                  (if (dropped tag)
+                    []
+                    ;; lists and tables lose the whitespace of their layout
+                    (let [kids (into []
+                                     (comp (mapcat node)
+                                           (if (structural-tags tag)
+                                             (remove layout?)
+                                             identity))
+                                     children)
+                          safe (safe-attributes opts tag attrs)]
+                      (if (allowed tag)
+                        (let [element (into [tag safe] kids)]
+                          (if element-fn
+                            (replaced element)
+                            [element]))
+                        kids))))
+
+                ;; e.g. of a for, spliced in as every Hiccup renderer does
+                (seq? x)
+                (into [] (mapcat node) x)
+
+                (number? x)
+                [(str x)]
+
+                :else
+                []))
+            (replaced [element]
+              (let [x (element-fn element)]
+                (cond
+                  (identical? x element) [element]
+                  trusted?               (tree/canonical x)
+                  :else                  (sanitized [x] true again))))]
+      (into [] (mapcat node) nodes))))
+
 (defn hiccup
   "The HTML, plain text or Hiccup `x` as Hiccup that's safe to render, by
   these keys of `opts`:
@@ -191,54 +256,21 @@
   - other elements are replaced by their children
   - a URL is kept, as :url-fn rewrites it, when its scheme is one of
     :allowed-schemes, which leaves out relative URLs by default
+  - an element that's kept, once its attributes and children are safe,
+    is given to :element-fn, and replaced by the Hiccup that it returns,
+    e.g. a p in place of an h1
+
+  What :element-fn returns is sanitized again, so that it can't bring in
+  what isn't allowed, unless :trusted-element-fn? is true. An element
+  that it returns as it was given is kept.
 
   Plain text becomes paragraphs with line breaks. Text is decoded, e.g.
   &lt; is <, so use a renderer that escapes text."
   ([x]
    (hiccup x {}))
   ([x opts]
-   (let [opts    (options opts)
-         nodes   (nodes-of x opts)
-         built?  (not (string? x))
-         allowed (:allowed-tags opts)
-         dropped (:dropped-tags opts)
-         layout? #(and (string? %) (whitespace/blank? %))]
-     (letfn [(node [x]
-               (cond
-                 (string? x)
-                 [x]
-
-                 ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so
-                 ;; only Hiccup that's built has shorthand tags
-                 (and built? (tree/element? x) (tree/shorthand? (x 0)))
-                 (node (tree/expanded x))
-
-                 (tree/element? x)
-                 (let [[tag attrs children] (tree/parts x)]
-                   (if (dropped tag)
-                     []
-                     ;; lists and tables lose the whitespace of their layout
-                     (let [kids (into []
-                                      (comp (mapcat node)
-                                            (if (structural-tags tag)
-                                              (remove layout?)
-                                              identity))
-                                      children)
-                           safe (safe-attributes opts tag attrs)]
-                       (if (allowed tag)
-                         [(into [tag safe] kids)]
-                         kids))))
-
-                 ;; e.g. of a for, spliced in as every Hiccup renderer does
-                 (seq? x)
-                 (into [] (mapcat node) x)
-
-                 (number? x)
-                 [(str x)]
-
-                 :else
-                 []))]
-       (apply list (into [] (mapcat node) nodes))))))
+   (let [opts (options opts)]
+     (apply list (sanitized (nodes-of x opts) (not (string? x)) opts)))))
 
 (defn sanitize
   "The HTML, plain text or Hiccup `x` as HTML that's safe to render, by the

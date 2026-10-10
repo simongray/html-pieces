@@ -308,6 +308,27 @@
                                  class)))]
           children)))
 
+(defn canonical
+  "The nodes of the built Hiccup `x`, as a parser gives them: text, and
+  elements with their tags written out and an attribute map."
+  [x]
+  (cond
+    (string? x)
+    [x]
+
+    (element? x)
+    (let [[tag attrs children] (parts (cond-> x (shorthand? (x 0)) expanded))]
+      [(into [tag attrs] (mapcat canonical) children)])
+
+    (seq? x)
+    (into [] (mapcat canonical) x)
+
+    (number? x)
+    [(str x)]
+
+    :else
+    []))
+
 ;; update-keys makes a transient even when there are no attributes
 (defn- attributes
   "The attributes `attrs` of a start tag token, by keyword."

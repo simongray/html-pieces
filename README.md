@@ -135,6 +135,32 @@ take `:src` out of the allowed attributes of `:img`:
 ;; => ([:img {:alt "A cat"}])
 ```
 
+To change an element rather than keep it or leave it out, pass an
+`:element-fn`. It's given each element that's kept, once its attributes
+and children are safe, and returns the Hiccup to put in its place. For
+example, to keep the headings of a reply from another site out of your
+page's outline, and to mark its links as user content:
+
+```clojure
+(defn reply-element
+  "The `element` of a reply as your page shows it."
+  [[tag attrs & children :as element]]
+  (case tag
+    (:h1 :h2 :h3) (into [:p {}] children)
+    :a            (assoc-in element [1 :rel] "nofollow ugc")
+    element))
+
+(html/sanitize "<h1>Hi</h1><p>See <a href='https://example.com/'>this</a>"
+               {:element-fn reply-element})
+;; => "<p>Hi</p><p>See <a href=\"https://example.com/\" rel=\"nofollow ugc\">this</a></p>"
+```
+
+What it returns is sanitized again, so it can't bring in an element or
+an attribute that isn't allowed. To keep it as it is, e.g. with a class
+that isn't allowed, also pass `:trusted-element-fn? true`. For the text
+or Markdown of the result, give `text` or `markdown` what `hiccup`
+returns.
+
 Principles
 ----------
 

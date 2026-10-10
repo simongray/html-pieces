@@ -312,6 +312,58 @@
     (is (= "<b>a</b>x" (html/sanitize "<b>a</b><p.lead>x</p.lead>")))
     (is (= "ax" (html/text "<b>a</b><p.lead>x</p.lead>")))))
 
+(defn reply-element
+  "The `element` of a reply from another site as a page shows it."
+  [[tag attrs & children :as element]]
+  (case tag
+    :h1  (into [:p {}] children)
+    :h2  (into [:strong {}] children)
+    :h3  (into [:h5 attrs] children)
+    :img (:alt attrs)
+    :a   (assoc-in element [1 :rel] "nofollow ugc")
+    element))
+
+(deftest replacing-elements
+  (let [opts {:element-fn reply-element}]
+    (testing "headings as paragraphs, strong text or smaller headings"
+      (is (= [[:p {} "Big"] [:strong {} "Less " [:em {} "so"]] [:h5 {} "Least"]]
+             (html/hiccup "<h1>Big</h1><h2>Less <em>so</em></h2><h3>Least</h3>" opts))))
+    (testing "an image as its alt text"
+      (is (= "<p>A cat, </p>"
+             (html/sanitize "<p><img src=\"https://x/cat.png\" alt=\"A cat\">, <img src=\"https://x/y.png\"></p>" opts))))
+    (testing "links that a search engine shouldn't follow, whatever their own rel"
+      (is (= "<a href=\"https://x/\" rel=\"nofollow ugc\">x</a> <a rel=\"nofollow ugc\">y</a>"
+             (html/sanitize "<a href=\"https://x/\" rel=\"me\">x</a> <a href=\"javascript:y()\">y</a>" opts)))))
+  (testing "an element given back as it is, which is kept"
+    (is (= [[:p {} "x"]] (html/hiccup "<p onclick=\"y()\">x</p>" {:element-fn identity}))))
+  (testing "nil in place of an element, or a seq of its children"
+    (is (= "<p>a</p>" (html/sanitize "<p>a<b>b</b></p>"
+                                      {:element-fn (fn [[tag :as e]] (when (not= :b tag) e))}))
+        "which leaves out the element with its content")
+    (is (= "<p>ab</p>" (html/sanitize "<p>a<b>b</b></p>"
+                                      {:element-fn (fn [[tag _ & children :as e]] (if (= :b tag) children e))}))))
+  (testing "what's in place of an element is sanitized again, but :url-fn is applied once"
+    (let [linked (fn [[tag _ & children :as e]]
+                   (if (= :p tag)
+                     [:a {:href (first children) :onclick "x()"} [:script "y"] (first children)]
+                     e))]
+      (is (= "<a>javascript:alert(1)</a>" (html/sanitize "<p>javascript:alert(1)</p>" {:element-fn linked})))
+      (is (= "<a href=\"javascript:alert(1)\" onclick=\"x()\"><script>y</script>javascript:alert(1)</a>"
+             (html/sanitize "<p>javascript:alert(1)</p>" {:element-fn linked :trusted-element-fn? true}))
+          "unless it's trusted"))
+    (is (= [[:h4 {} "x"]] (html/hiccup "<h1>x</h1>" {:element-fn #(assoc % 0 :h4)}))
+        "and it isn't given to the function again")
+    (is (= [[:a {:href "https://s.example/x" :title "t"} "x"]]
+           (html/hiccup "<a href=\"/x\">x</a>" {:url-fn     #(str "https://s.example" %)
+                                                :element-fn #(assoc-in % [1 :title] "t")}))))
+  (testing "built Hiccup in place of an element"
+    (let [para (fn [[tag _ & children :as e]] (if (= :div tag) [:p.x (seq children) 1] e))]
+      (is (= "<p>a<b>b</b>1</p>" (html/sanitize "<div>a<b>b</b></div>" {:element-fn para})))
+      (is (= "<p class=\"x\">a<b>b</b>1</p>"
+             (html/sanitize "<div>a<b>b</b></div>" {:element-fn para :trusted-element-fn? true})))))
+  (testing "no function, the default"
+    (is (= [[:h1 {} "x"]] (html/hiccup "<h1>x</h1>" {:element-fn nil})))))
+
 (deftest writing-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
          (serializer/html [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]
