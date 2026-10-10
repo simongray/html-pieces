@@ -180,12 +180,24 @@ map and the children, and text is a string:
 Given Hiccup that you've built, `parse` gives it the same shape, so that
 you can walk any Hiccup the same way.
 
+To write HTML or Hiccup as HTML without sanitizing it, use `serialize`,
+which writes it as a browser writes the `innerHTML` of an element:
+
+```clojure
+(html/serialize "<P class=x>Hi<br/>there<script>track()</script>")
+;; => "<p class=\"x\">Hi<br>there<script>track()</script></p>"
+```
+
+Neither `parse` nor `serialize` is safe for HTML that you don't trust, so
+render what `hiccup` or `sanitize` gives instead.
+
 Principles
 ----------
 
 - **Standards first.** The tokenizer follows the HTML Standard and passes
   the tokenizer tests of html5lib-tests, so HTML is read as a browser
-  reads it. The code cites the sections that it implements.
+  reads it, and URLs are resolved by the URL Standard. The code cites the
+  sections that it implements.
 - **Pieces, not documents.** The tree builder only has the rules that
   pieces of HTML need. What it leaves out, e.g. the repairs of tables, or
   SVG and MathML, is noted as a TODO in the namespace docstrings.
@@ -201,7 +213,8 @@ Principles
   attributes and URLs that a page can render safely. Both `text` and
   `markdown` leave out the control characters that a terminal would obey,
   and `markdown` also escapes what a Markdown renderer would read as
-  markup.
+  markup. Only `parse` and `serialize` keep HTML as it is, and they say
+  so.
 - **One codebase.** The library is written in `.cljc`. Its only dependency
   is data.json, which reads the table of character references when the
   code compiles.

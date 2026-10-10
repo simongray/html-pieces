@@ -4,6 +4,18 @@
   (:require [dk.simongray.html-pieces.tokenizer :as tokenizer]
             [dk.simongray.html-pieces.tree :as tree]))
 
+;; HTML Standard, 13.3, "serializes as void"
+(def void-elements
+  "The elements that are written without content or an end tag."
+  #{:area :base :basefont :bgsound :br :col :embed :frame :hr :img :input
+    :keygen :link :meta :param :source :track :wbr})
+
+;; HTML Standard, 13.3, with scripting off, as the tree builder reads
+;; noscript
+(def raw-text-elements
+  "The elements whose text a browser writes as it is, without escapes."
+  #{:style :script :xmp :iframe :noembed :noframes :plaintext})
+
 ;; Characters are matched by their code, since case hashes a character on
 ;; the JVM
 
@@ -37,21 +49,25 @@
       (when (and (seq s) (every-code? name-code? s))
         s))))
 
+;; Most characters are above >, and one compare tells them, where a case
+;; that ran up to the no-break space would take twice the time on the JVM
 (defn escape
   "The escape of the character of the code `c`, in an attribute value when
   `attr?`, or nil when it needs none."
   [^long c attr?]
-  (case c
-    38 "&amp;"
-    60 "&lt;"
-    62 "&gt;"
-    34 (when attr? "&quot;")
-    nil))
+  (if (< 62 c)
+    (when (== 160 c) "&nbsp;")
+    (case c
+      38 "&amp;"
+      60 "&lt;"
+      62 "&gt;"
+      34 (when attr? "&quot;")
+      nil)))
 
 ;; Most text needs no escape, and is then appended whole
 (defn escaped!
-  "Append the text `s` to the builder `b`, with & < and > escaped, and \"
-  too when `attr?`."
+  "Append the text `s` to the builder `b`, with & < > and the no-break
+  space escaped, and \" too when `attr?`."
   [b s attr?]
   (let [n (count s)]
     (loop [i 0 start 0]
@@ -107,20 +123,26 @@
 ;; One builder for the whole tree, rather than a string for each element
 ;; that every parent copies again
 (defn html
-  "The Hiccup `nodes` as an HTML string. An attribute whose name HTML can't
-  hold is left out, and such an element is replaced by its children."
-  [nodes]
+  "The Hiccup `nodes` as an HTML string, with the text of the elements of
+  `raw-tags` as it is and other text escaped. An attribute whose name HTML
+  can't hold is left out, and such an element is replaced by its
+  children."
+  [nodes raw-tags]
   (let [b (tokenizer/builder)]
     (letfn [(node [x]
               (cond
                 (string? x)       (escaped! b x false)
                 (tree/element? x) (element x)))
+            (raw-node [x]
+              (cond
+                (string? x)       (tokenizer/append! b x)
+                (tree/element? x) (element x)))
             (element [x]
               (let [[tag attrs children] (tree/parts x)]
                 (if-let [n (html-name tag)]
                   (do (start-tag! b n attrs)
-                      (when-not (tree/void-elements tag)
-                        (run! node children)
+                      (when-not (void-elements tag)
+                        (run! (if (raw-tags tag) raw-node node) children)
                         (end-tag! b n)))
                   (run! node children))))]
       (run! node nodes)

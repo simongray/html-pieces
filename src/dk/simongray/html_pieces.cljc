@@ -172,6 +172,15 @@
      (tree/build (tokenizer/tokens x) (:max-depth (options opts)))
      (apply list (mapcat tree/canonical (tree/nodes x))))))
 
+(defn serialize
+  "The HTML or Hiccup `x`, read by `opts`, as HTML that's written as a
+  browser writes it, by 13.3 of the HTML Standard. Nothing is sanitized,
+  so for HTML to render, use sanitize."
+  ([x]
+   (serialize x {}))
+  ([x opts]
+   (serializer/html (parse x opts) serializer/raw-text-elements)))
+
 (def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
@@ -294,13 +303,15 @@
    (let [opts (resolving (options opts))]
      (apply list (sanitized (nodes-of x opts) (not (string? x)) opts)))))
 
+;; The text of a script or a style that's allowed is escaped too, unlike in
+;; a browser, since text that held its end tag would end it early
 (defn sanitize
   "The HTML, plain text or Hiccup `x` as HTML that's safe to render, by the
   `opts` of hiccup."
   ([x]
    (sanitize x {}))
   ([x opts]
-   (serializer/html (hiccup x opts))))
+   (serializer/html (hiccup x opts) #{})))
 
 (defn text
   "The HTML or Hiccup `x` as plain text, by `opts`. An image is its alt

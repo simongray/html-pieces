@@ -2,8 +2,7 @@
   "Embedded HTML as Hiccup, sanitized, and rendered as text and Markdown."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.html-pieces :as html]
-            [dk.simongray.html-pieces.serializer :as serializer]))
+            [dk.simongray.html-pieces :as html]))
 
 (deftest parsing-the-way-a-browser-does
   (testing "elements, attributes and entities"
@@ -313,6 +312,11 @@
                          [:ol {:reversed true}]]))
       "Hiccup, with only what's safe, and its text and values escaped")
   (is (= "<p>x</p>" (html/sanitize [:p "x"])) "an element alone, without an attribute map")
+  (is (= "<p>a&nbsp;b</p>" (html/sanitize "<p>a&nbsp;b</p>")) "a no-break space, as a browser writes it")
+  (is (= "<style>p &gt; b {}&lt;/style&gt;&lt;script&gt;x()&lt;/script&gt;</style>"
+         (html/sanitize [:style "p > b {}</style><script>x()</script>"]
+                        {:allowed-tags #{:style} :dropped-tags #{}}))
+      "the text of a style that's allowed, which can't end it early")
   (testing "safe Hiccup survives a trip through HTML"
     (let [nodes (html/hiccup "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>")]
       (is (= nodes (html/parse (html/sanitize nodes)))))))
@@ -431,12 +435,31 @@
     (is (= [[:h1 {} "x"]] (html/hiccup "<h1>x</h1>" {:element-fn nil})))))
 
 (deftest writing-html
-  (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
-         (serializer/html [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]
-                           [:input {:disabled true}]])))
-  (is (= "<p title=\"t\">x</p>c<input><p></p>"
-         (serializer/html [[:p {(keyword "onmouseover=alert(1) x") "y" :title "t"} "x"]
-                           [(keyword "a b") "c"]
-                           [:input {:disabled false :value nil}]
-                           [:p []] [nil] 1]))
-      "names that HTML can't hold, false and nil, and Hiccup of any shape"))
+  (testing "HTML as a browser writes it, with nothing sanitized"
+    (is (= "<p class=\"x\" onclick=\"y()\">a &amp; b<br>c</p><ul><li>one</li><li>two</li></ul>"
+           (html/serialize "<P class=x onclick=y()>a &amp; b<br/>c<ul><li>one<li>two</ul>")))
+    (is (= "<p title=\"&lt;&quot;&amp;&gt;\">a&nbsp;&lt;b&gt;</p>"
+           (html/serialize "<p title='<\"&amp;>'>a&nbsp;&lt;b>"))
+        "text and values escaped, and the no-break space")
+    (is (= "<script>if (a < b && c) x()</script><style>p > b {}</style><textarea>&lt;/p&gt;</textarea>"
+           (html/serialize (str "<script>if (a < b && c) x()</script><style>p > b {}</style>"
+                                "<textarea>&lt;/p></textarea>")))
+        "the text of a script or a style as it is")
+    (let [tree (html/parse "<p>a&nbsp;<b>&lt;b&gt;</b><script>1 < 2</script><img src=x alt='\"'>")]
+      (is (= tree (html/parse (html/serialize tree))) "a tree that survives a trip through HTML")))
+  (testing "Hiccup"
+    (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
+           (html/serialize [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]
+                            [:input {:disabled true}]])))
+    (is (= "<div id=\"main\" class=\"intro\"><p>Count: 42</p><ul><li>one</li><li>two</li></ul></div>"
+           (html/serialize [:div#main.intro
+                            [:p "Count: " 42]
+                            [:ul (for [s ["one" "two"]] [:li s])]
+                            nil]))
+        "as an app builds it")
+    (is (= "<p title=\"t\">x</p>c<input><p></p><frame>1"
+           (html/serialize [[:p {(keyword "onmouseover=alert(1) x") "y" :title "t"} "x"]
+                            [(keyword "a b") "c"]
+                            [:input {:disabled false :value nil}]
+                            [:p []] [nil] [:frame "x"] 1]))
+        "names that HTML can't hold, false and nil, void elements, and Hiccup of any shape")))
