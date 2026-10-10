@@ -1,6 +1,8 @@
 html-pieces
 ===========
 
+[![Clojars Project](https://img.shields.io/clojars/v/dk.simongray/html-pieces.svg)](https://clojars.org/dk.simongray/html-pieces)
+
 This is a Clojure and ClojureScript library for working with embedded
 pieces of HTML, e.g. comments, the descriptions in RSS feeds, or the
 fields of a CMS.
@@ -24,9 +26,16 @@ results on each.
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. Add it to the `:deps` in your
-`deps.edn` as a Git dependency, with the SHA of the latest commit on
-`master`:
+It requires Clojure 1.11+ and Java 11+. For the latest release, add it
+from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
+`:deps` in your `deps.edn`:
+
+```clojure
+dk.simongray/html-pieces {:mvn/version "0.1.0"}
+```
+
+For changes that aren't released yet, use the SHA of the latest commit on
+`master` instead:
 
 ```clojure
 dk.simongray/html-pieces
@@ -34,8 +43,8 @@ dk.simongray/html-pieces
  :git/sha "…"}
 ```
 
-For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`, since
-shadow-cljs only reads Git dependencies from `deps.edn`.
+For ClojureScript, shadow-cljs only reads Git dependencies from
+`deps.edn`, so also set `:deps true` in your `shadow-cljs.edn`.
 
 Then try it on a piece of HTML:
 

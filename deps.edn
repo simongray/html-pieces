@@ -38,4 +38,9 @@
            {:mvn/version "0.64.8"}
            com.googlecode.owasp-java-html-sanitizer/owasp-java-html-sanitizer
            {:mvn/version "20260924.2"}}
-          :exec-fn       dk.simongray.html-pieces.bench/run}}}
+          :exec-fn       dk.simongray.html-pieces.bench/run}
+
+  ;; clojure -T:build jar | install | deploy  (see build.clj)
+  :build {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.14"}
+                       slipset/deps-deploy            {:mvn/version "0.2.5"}}
+          :ns-default build}}}
