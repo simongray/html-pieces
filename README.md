@@ -29,7 +29,9 @@ It requires Clojure 1.11+ and Java 11+. Add it to the `:deps` in your
 `master`:
 
 ```clojure
-io.github.simongray/html-pieces {:git/sha "…"}
+dk.simongray/html-pieces
+{:git/url "https://github.com/simongray/html-pieces"
+ :git/sha "…"}
 ```
 
 For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`, since
