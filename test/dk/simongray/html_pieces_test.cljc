@@ -255,6 +255,12 @@
     (is (= "\\# x\n\n1\\. y"
            (html/markdown "<p><img alt=\"# x\"></p><p><img src=\"javascript:x\" alt=\"1\">. y</p>"))
         "an alt text as text"))
+  (testing "the start of a block behind control characters, which rendered text leaves out"
+    (is (= "\\- x\n\n1\\. y\n\n\\# z\n\n12\\) w"
+           (html/markdown "<p>&#1;- x</p><p> &#141; 1. y</p><p>&#129;# z</p><p>1&#27;2) w</p>")))
+    (is (= "\\- x\n\n1\\. y" (html/markdown [[:p "\u0001- x"] [:p "\u00011. y"]])) "Hiccup")
+    (is (= "\\- x" (html/markdown [:p (str (char 0x85) "- x")] {:quirks? false}))
+        "a C1 control without :quirks?"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "

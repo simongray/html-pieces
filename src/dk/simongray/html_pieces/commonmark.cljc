@@ -50,12 +50,38 @@
   reference."
   #"&(?=#?[0-9A-Za-z]{1,32};)")
 
+;; Rendered text leaves out these control characters, so the start of a
+;; block behind them is escaped as if they weren't there. With :quirks?,
+;; most C1 controls show as characters of windows-1252 instead, and the
+;; escape is then needless but harmless.
+(defn hidden?
+  "Whether the character `c` is a control character that rendered text
+  leaves out: any but a tab, a line feed or a carriage return."
+  [c]
+  ;; a primitive long, compared two numbers at a time, allocates nothing
+  (let [x (long (tokenizer/code c))]
+    (or (<= x 8)
+        (== x 11)
+        (== x 12)
+        (and (<= 14 x) (<= x 31))
+        (and (<= 127 x) (<= x 159)))))
+
+;; the predicates that end a run, made once rather than at each run
+
+(def space-end?
+  "Whether a character ends the space in front of a block: it's neither
+  whitespace nor hidden."
+  (complement #(or (whitespace/char? %) (hidden? %))))
+
 ;; CommonMark 0.31.2, sections 4.1 to 4.3 and 5.2
 (def block-start
   "What starts a heading, a thematic break or a list at the start of a
   line, after the space in front: a # + = or -, or the digits of an
-  ordered list and the . or ) after them."
-  #"^([\t\n\f\r ]*)(?:([#+=-])|([0-9]{1,9})([.)]))")
+  ordered list and the . or ) after them. Hidden characters can be in the
+  space and after each digit."
+  (let [hidden "\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F"]
+    (re-pattern (str "^([\\t\\n\\r " hidden "]*)"
+                     "(?:([#+=-])|((?:[0-9][" hidden "]*){1,9})([.)]))"))))
 
 ;; CommonMark 0.31.2, section 5.2: the digits of an ordered list and the
 ;; . or ) after them can come from two texts. A Latin-1 mark keeps strings
@@ -84,7 +110,7 @@
   [s]
   (let [s     (escaped s)
         n     (count s)
-        start (tokenizer/skip-whitespace s n 0)
+        start (tokenizer/run-end s n 0 space-end?)
         lead  (tokenizer/char-at s n start)]
     ;; any text can end up at the start of a line
     (cond
