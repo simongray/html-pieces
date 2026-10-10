@@ -342,7 +342,7 @@
                                          (not (string? x))
                                          commonmark/inline
                                          commonmark/element
-                                         str/join
+                                         commonmark/joined
                                          opts)))))
 
 #?(:clj

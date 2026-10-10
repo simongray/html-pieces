@@ -267,6 +267,14 @@
   (testing "line breaks and spaces at the ends of blocks and emphasis"
     (is (= "**Credits:**\\\nHosts **spaced** end\n\na\n\nb"
            (html/markdown "<p><strong>Credits:<br></strong>Hosts<b> spaced </b>end<br></p><p>a<br><br>b</p>"))))
+  (testing "emphasis next to the same emphasis, as one"
+    (is (= "*ab* **cd** ~~ef~~ *g* *h*"
+           (html/markdown [:p [:em "a"] [:i "b"] " " [:b "c"] [:strong "d"] " " [:s "e"] [:del "f"] " " [:em "g"] " " [:em "h"]])))
+    (is (= "~~*ab*~~ *a***b** *a\\*b*"
+           (html/markdown "<p><s><i>a</i></s><s><i>b</i></s> <em>a</em><strong>b</strong> <em>a*</em><em>b</em></p>"))
+        "inside other emphasis, next to other emphasis, and after a mark that's text")
+    (is (= "*abc*" (html/markdown "<i>a</i><span><i>b</i></span><b></b><i>c</i>"))
+        "with elements between that Markdown doesn't show"))
   (testing "a heading on one line, with each line break as a space"
     (is (= "## a b\n\n## c d e"
            (html/markdown "<h2>a<br>b</h2><h2>c <br><br> d<p>e</p></h2>"))))

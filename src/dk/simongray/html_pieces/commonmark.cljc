@@ -177,6 +177,110 @@
       (str (subs inner 0 start) mark (subs inner start end) mark
            (subs inner end)))))
 
+;; the code units of * and ~, which the JVM compares without boxing
+(defn mark-at?
+  "Whether the character at `i` of the text `s` is a mark of emphasis."
+  [s ^long i]
+  (let [x (tokenizer/code-at s i)]
+    (or (== 42 x) (== 126 x))))
+
+(defn marks-meet?
+  "Whether the Markdown `l` ends with a mark of emphasis and `r` starts
+  with one, neither of them empty."
+  [l r]
+  (and (mark-at? l (dec (count l))) (mark-at? r 0)))
+
+;; CommonMark 0.31.2, section 2.4: an odd number of backslashes escapes
+;; the mark after them, which is then text
+(def closing-marks
+  "The marks of emphasis at the end of Markdown, after the backslashes
+  before them."
+  #"(\\*)([*~]+)$")
+
+(def mark-runs
+  "A run of the same mark of emphasis."
+  #"\*+|~+")
+
+;; CommonMark 0.31.2, section 6.2: delimiter runs next to each other join,
+;; e.g. *a**b* is one emphasis around a**b. A run of three asterisks closes
+;; or opens emphasis and strong emphasis in an order that it doesn't tell,
+;; so it's left as it is.
+(defn shared-marks
+  "The number of characters of marks where emphasis closes at the end of
+  the Markdown `l` and the same emphasis opens at the start of `r`: those
+  of each run of marks that is the same in both, from where they meet."
+  [l r]
+  (let [[_ slashes closing] (re-find closing-marks l)
+        closing             (cond-> closing (odd? (count slashes)) (subs 1))
+        opening             (re-find #"^[*~]+" r)]
+    (->> (map vector
+              (reverse (re-seq mark-runs closing))
+              (re-seq mark-runs opening))
+         (take-while (fn [[a b]] (and (= a b) (<= (count a) 2))))
+         (map (comp count first))
+         (reduce + 0))))
+
+(defn joined-pair
+  "The Markdown `l` and `r` of nodes next to each other, without the marks
+  where emphasis closes at the end of `l` and opens again at the start of
+  `r`."
+  [l r]
+  (let [n (shared-marks l r)]
+    [(subs l 0 (- (count l) n)) (subs r n)]))
+
+(defn rejoined
+  "The Markdown `xs` of nodes next to each other, without those that are
+  empty and the marks where emphasis closes and opens again between them."
+  [xs]
+  (reduce (fn [acc r]
+            (let [l (peek acc)]
+              (cond
+                (= "" r)                  acc
+                (and l (marks-meet? l r)) (into (pop acc) (joined-pair l r))
+                :else                     (conj acc r))))
+          []
+          xs))
+
+(defn text-length
+  "The number of characters in the texts `xs`."
+  ^long [xs]
+  (let [n (count xs)]
+    (loop [i 0 length 0]
+      (if (== i n)
+        length
+        (recur (inc i) (+ length (count (nth xs i))))))))
+
+;; a builder with room for all of them, which the JVM then never grows,
+;; while JavaScript's has no room to set
+(defn joined-as-is
+  "The Markdown `xs` of nodes next to each other as one, or nil when marks
+  of emphasis meet between them."
+  [xs]
+  (let [n (count xs)
+        b #?(:clj  (tokenizer/builder (text-length xs))
+             :cljs (tokenizer/builder))]
+    (loop [i 0 after-mark? false]
+      (if (== i n)
+        (or (tokenizer/take-text! b) "")
+        (let [s (nth xs i)
+              k (count s)]
+          (cond
+            (zero? k)                        (recur (inc i) after-mark?)
+            (and after-mark? (mark-at? s 0)) nil
+            :else                            (do (tokenizer/append! b s)
+                                                 (recur (inc i)
+                                                        (mark-at? s (dec k))))))))))
+
+;; one node is given back as it is, and most are joined in one pass, since
+;; marks seldom meet
+(defn joined
+  "The Markdown `xs` of nodes next to each other as one, where emphasis
+  that closes and opens again is one, e.g. *ab* rather than *a**b*."
+  [xs]
+  (if (< (count xs) 2)
+    (nth xs 0 "")
+    (or (joined-as-is xs) (str/join (rejoined xs)))))
+
 (defn digits-start?
   "Whether the digits before the index `i` of the Markdown `md` start a
   line or `md`, after the space in front."
