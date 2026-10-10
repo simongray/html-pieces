@@ -176,10 +176,11 @@
   render as `inner`, in the context `ctx`."
   [[tag attrs] inner ctx]
   (let [href   (when (:links? ctx)
-                 (some-> (:href attrs) str (str/replace #"[\t\n\r]" "")))
-        shown? (and href
-                    (url/allowed? (:allowed-schemes ctx) href)
-                    (not= (whitespace/strip inner) href))]
+                 (some-> (url/checked (:url-fn ctx)
+                                      (:allowed-schemes ctx)
+                                      (:href attrs))
+                         (str/replace #"[\t\n\r]" "")))
+        shown? (and href (not= (whitespace/strip inner) href))]
     (cond
       (= :br tag)                  "\n"
       (= :hr tag)                  "\n\n"

@@ -255,7 +255,7 @@
   (let [heading (heading-levels tag)
         inside?(or (< (if (= :pre tag) 1 0) (:pre ctx 0))
                     (< (if (= :code tag) 1 0) (:code ctx 0)))
-        safe?   #(and (string? %) (url/allowed? (:allowed-schemes ctx) %))
+        checked #(url/checked (:url-fn ctx) (:allowed-schemes ctx) %)
         quoted  #(->> (str/split-lines %)
                       (map (fn [line] (str "> " line)))
                       (str/join "\n"))]
@@ -276,15 +276,15 @@
       "\n\n---\n\n"
 
       (= :img tag)
-      (let [src (:src attrs)
+      (let [src (checked (:src attrs))
             alt (whitespace/collapse (str (:alt attrs)))]
-        (if (safe? src)
+        (if src
           (str "![" (escaped alt) "](" (destination src) ")")
           (escaped-text alt)))
 
       (= :a tag)
-      (let [href (:href attrs)]
-        (if (and (safe? href) (not (whitespace/blank? inner)))
+      (let [href (checked (:href attrs))]
+        (if (and href (not (whitespace/blank? inner)))
           (str "[" inner "](" (destination href) ")")
           inner))
 

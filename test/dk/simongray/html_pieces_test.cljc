@@ -117,6 +117,41 @@
     (is (= [[:p {} "x"]] (html/hiccup [[:p "x"]] {:allowed-tags nil})))
     (is (= [[:p {} "x"]] (html/hiccup [:p "x"])) "an element alone")))
 
+(deftest resolving-urls
+  (let [opts  {:base-url "https://show.example/notes/"}
+        piece "<p><a href=\"../about\">About</a> <img src=\"logo.png\" alt=\"Logo\"></p>"]
+    (testing "against the page that the HTML came from, in each function"
+      (is (= [[:p {} [:a {:href "https://show.example/about"} "About"] " "
+               [:img {:src "https://show.example/notes/logo.png" :alt "Logo"}]]]
+             (html/hiccup piece opts)))
+      (is (= (str "<p><a href=\"https://show.example/about\">About</a> "
+                  "<img src=\"https://show.example/notes/logo.png\" alt=\"Logo\"></p>")
+             (html/sanitize piece opts)))
+      (is (= "About (https://show.example/about) Logo"
+             (html/text piece (assoc opts :links? true))))
+      (is (= "[About](https://show.example/about) ![Logo](https://show.example/notes/logo.png)"
+             (html/markdown piece opts))))
+    (testing "and normalized as a browser normalizes them"
+      (is (= [[:a {:href "http://example.com/b%20c"} "x"]]
+             (html/hiccup "<a href=\"HTTP://Example.COM:80/a/../b c\">x</a>" opts))))
+    (testing "in a list of URLs"
+      (is (= [[:img {:srcset "https://show.example/notes/a.png 1x, https://show.example/b.png 2x"}]]
+             (html/hiccup "<img srcset=\"a.png 1x, /b.png 2x\">"
+                          (assoc opts :allowed-attributes {:img #{:srcset}})))))
+    (testing "before :url-fn and :element-fn, which get them absolute"
+      (is (= [[:img {:src "https://proxy.example/?url=https://show.example/notes/a.png"}]]
+             (html/hiccup "<img src=\"a.png\">"
+                          (assoc opts :url-fn #(str "https://proxy.example/?url=" %)))))
+      (is (= [[:a {:href "https://show.example/about" :title "https://show.example/about"} "About"]]
+             (html/hiccup "<a href=\"../about\">About</a>"
+                          (assoc opts :element-fn #(assoc-in % [1 :title] (get-in % [1 :href])))))))
+    (testing "and checked after, whatever the base"
+      (is (= [[:a {} "x"] [:a {} "y"]]
+             (html/hiccup "<a href=\"java&#9;script:alert(1)\">x</a><a href=\"#y\">y</a>"
+                          {:base-url "javascript:alert(2)"})))
+      (is (= [[:a {} "x"]] (html/hiccup "<a href=\"http://x:y/\">x</a>" opts))
+          "and left out when it isn't valid"))))
+
 (deftest hostile-markup
   (testing "nesting stops at max-depth, so that no walk of the tree overflows the stack"
     (let [deep  (apply str (repeat 10000 "<span>"))
@@ -257,7 +292,12 @@
     (is (= "a\nb" (html/text "<p>a</p><p>b</p>" {:paragraph-tags #{} :line-tags #{:p}})))
     (is (= "x (ftp://x/)" (html/text "<a href=\"ftp://x/\">x</a>" {:links? true :allowed-schemes #{"ftp"}})))
     (is (= "> x" (html/markdown "<blockquote><blockquote>x</blockquote></blockquote>" {:max-quote-depth 1})))
-    (is (= "<a href=\"https://s.example/x\">x</a>" (html/sanitize "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)}))))
+    (is (= "<a href=\"https://s.example/x\">x</a>" (html/sanitize "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %)})))
+    (is (= "x (https://s.example/x)"
+           (html/text "<a href=\"/x\">x</a>" {:url-fn #(str "https://s.example" %) :links? true})))
+    (is (= "[x](https://s.example/x) y"
+           (html/markdown "<a href=\"/x\">x</a> <a href=\"https://y/\">y</a>"
+                          {:url-fn #(when (str/starts-with? % "/") (str "https://s.example" %))}))))
   (testing "the repair that the HTML Standard doesn't make, switched off"
     (is (= "dont" (html/text (str "<p>don" (char 0x92) "t</p>") {:quirks? false}))))
   (testing "an option of nil is the default"

@@ -100,14 +100,17 @@ again, such as Replicant, Reagent or `hiccup2.core/html`. The older
 
 **NOTE:** Relative URLs are left out, since a browser would resolve them
 against your page rather than the page the HTML came from. If you know
-that page, pass a `:url-fn` that makes them absolute:
+that page, pass its URL as `:base-url`, and they're resolved against it as
+a browser resolves them:
 
 ```clojure
-(def page (java.net.URI. "https://example.com/blog/"))
-
-(html/hiccup "<a href='/about'>About</a>" {:url-fn #(str (.resolve page %))})
+(html/hiccup "<a href='/about'>About</a>"
+             {:base-url "https://example.com/blog/"})
 ;; => ([:a {:href "https://example.com/about"} "About"])
 ```
+
+For a URL outside HTML, e.g. the link of a feed, `resolve` in the
+`dk.simongray.html-pieces.url` namespace does the same.
 
 Options
 -------

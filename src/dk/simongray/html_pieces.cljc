@@ -106,7 +106,10 @@
   "The default of each option. Most are vars of the same name, and the
   others are:
 
-  - :url-fn, a function of a URL that gives the URL to keep, or nil
+  - :base-url, the URL of the page that the HTML came from, which each
+    URL is resolved against
+  - :url-fn, a function of a URL, once it's resolved, that gives the URL
+    to keep, or nil
   - :element-fn, a function of an element that's kept, which gives the
     Hiccup to put in its place
   - :trusted-element-fn?, true to keep what :element-fn gives unchecked
@@ -120,6 +123,7 @@
    :allowed-schemes     allowed-schemes
    :url-attributes      url-attributes
    :url-list-attributes url-list-attributes
+   :base-url            nil
    :url-fn              identity
    :element-fn          nil
    :trusted-element-fn? false
@@ -136,6 +140,18 @@
   (if (empty? opts)
     default-options
     (into default-options (remove (comp nil? val)) opts)))
+
+;; The base is read once for every URL of a call. Only the functions that
+;; keep URLs call this, so that an app which only parses leaves the
+;; resolver out of its bundle.
+(defn- resolving
+  "The `opts` with each URL resolved against their :base-url, if any,
+  before it's given to their :url-fn."
+  [{:keys [base-url url-fn] :as opts}]
+  (if base-url
+    (let [resolve (url/resolver base-url)]
+      (assoc opts :url-fn #(some-> (resolve %) url-fn)))
+    opts))
 
 (defn parse
   "The HTML `s` as a sequence of Hiccup nodes, nested at most as deep as the
@@ -187,9 +203,9 @@
     :else             [x]))
 
 ;; What :element-fn gives is sanitized again by the same walk, but without
-;; :url-fn, which its URLs have been through, and without :element-fn, so
-;; that it's called once for each element. An element that it gives back
-;; as it is costs nothing more.
+;; :url-fn and :base-url, which its URLs have been through, and without
+;; :element-fn, so that it's called once for each element. An element that
+;; it gives back as it is costs nothing more.
 (defn- sanitized
   "The `nodes`, built Hiccup when `built?`, with only what `opts` allows."
   [nodes built? opts]
@@ -254,8 +270,9 @@
     :allowed-attributes
   - elements of :dropped-tags are removed with their content
   - other elements are replaced by their children
-  - a URL is kept, as :url-fn rewrites it, when its scheme is one of
-    :allowed-schemes, which leaves out relative URLs by default
+  - a URL is resolved against :base-url, if it's given, and kept as
+    :url-fn rewrites it when its scheme is one of :allowed-schemes, so a
+    relative URL is left out without a :base-url
   - an element that's kept, once its attributes and children are safe,
     is given to :element-fn, and replaced by the Hiccup that it returns,
     e.g. a p in place of an h1
@@ -269,7 +286,7 @@
   ([x]
    (hiccup x {}))
   ([x opts]
-   (let [opts (options opts)]
+   (let [opts (resolving (options opts))]
      (apply list (sanitized (nodes-of x opts) (not (string? x)) opts)))))
 
 (defn sanitize
@@ -282,12 +299,12 @@
 
 (defn text
   "The HTML or Hiccup `x` as plain text, by `opts`. An image is its alt
-  text, and a link is followed by its URL when :links? and the scheme is
+  text, and a link is followed by its URL when :links? and the URL is
   allowed. Control characters are left out, but for tabs and line breaks."
   ([x]
    (text x {}))
   ([x opts]
-   (let [opts (options opts)]
+   (let [opts (resolving (options opts))]
      (render/walk (nodes-of x opts)
                   (not (string? x))
                   render/text-inline
@@ -297,12 +314,12 @@
 (defn markdown
   "The HTML or Hiccup `x` as Markdown, by `opts`. Text is escaped where
   Markdown would read it as markup, and a link or an image is its text
-  when the scheme isn't allowed. Control characters are left out, but for
+  when its URL isn't allowed. Control characters are left out, but for
   tabs and line breaks."
   ([x]
    (markdown x {}))
   ([x opts]
-   (let [opts (options opts)]
+   (let [opts (resolving (options opts))]
      (commonmark/fix-breaks (render/walk (nodes-of x opts)
                                          (not (string? x))
                                          commonmark/inline
