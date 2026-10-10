@@ -222,6 +222,18 @@
      (-> (str/replace #"^(?:[\t\n\f\r ]*\\\n)+" "")
          (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
 
+;; CommonMark 0.31.2, section 4.2: an ATX heading is one line
+(defn heading-line
+  "The Markdown `inner` as an ATX heading of `level`, with each line break
+  and the spaces around it as one space."
+  [level inner]
+  (let [text (block-text inner)]
+    (str (apply str (repeat level "#")) " "
+         (cond-> text
+           ;; a hard line break is a backslash before the line break
+           (str/includes? text "\n")
+           (str/replace #"[\t ]*(?:\\?\n[\t ]*)+" " ")))))
+
 (defn inline
   "The Markdown of the text `s` in the context `ctx`: as it is in a pre,
   collapsed in a code element, and escaped elsewhere."
@@ -250,8 +262,7 @@
         inner)
 
       heading
-      (str "\n\n" (apply str (repeat heading "#")) " "
-           (block-text inner) "\n\n")
+      (str "\n\n" (heading-line heading inner) "\n\n")
 
       (= :br tag)
       "\\\n"

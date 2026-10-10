@@ -233,6 +233,9 @@
   (testing "line breaks and spaces at the ends of blocks and emphasis"
     (is (= "**Credits:**\\\nHosts **spaced** end\n\na\n\nb"
            (html/markdown "<p><strong>Credits:<br></strong>Hosts<b> spaced </b>end<br></p><p>a<br><br>b</p>"))))
+  (testing "a heading on one line, with each line break as a space"
+    (is (= "## a b\n\n## c d e"
+           (html/markdown "<h2>a<br>b</h2><h2>c <br><br> d<p>e</p></h2>"))))
   (testing "code with backticks, and emphasis without text"
     (is (= "``` `` ```x\n\n````\na\n```\n# not code\n````\n\n```\nx y\n```"
            (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
