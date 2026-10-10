@@ -99,8 +99,9 @@
       (str/includes? text pre-mark) (str/replace pre-mark ""))))
 
 (defn walk
-  "The `nodes` rendered as text by the functions `inline-fn` and
-  `element-fn`, starting from the map `context` of options.
+  "The `nodes`, built Hiccup when `built?`, rendered as text by the
+  functions `inline-fn` and `element-fn`, starting from the map `context`
+  of options.
 
   The `inline-fn` takes a string and the context, and the `element-fn`
   takes a vector of the tag and attributes, the rendered children and the
@@ -110,12 +111,18 @@
   - :index, a volatile that counts the list items
   - :pre, :code and :quotes, how many pre, code and blockquote elements
     it's in, the element itself included"
-  [nodes inline-fn element-fn context]
+  [nodes built? inline-fn element-fn context]
   (letfn [(node [x outer]
             (cond
-              (string? x)             (inline-fn x outer)
-              (not (tree/element? x)) ""
-              :else
+              (string? x)
+              (inline-fn x outer)
+
+              ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so only
+              ;; Hiccup that's built has shorthand tags
+              (and built? (tree/element? x) (tree/shorthand? (x 0)))
+              (node (tree/expanded x) outer)
+
+              (tree/element? x)
               (let [[tag attrs children] (tree/parts x)
                     counted              #(update %1 %2 (fnil inc 0))]
                 (if ((:dropped-tags outer) tag)
@@ -132,7 +139,17 @@
                                 (if (and (= :pre tag) (not (:pre outer)))
                                   (marked-lines inner)
                                   inner)
-                                ctx))))))]
+                                ctx))))
+
+              ;; e.g. of a for, spliced in as every Hiccup renderer does
+              (seq? x)
+              (str/join (into [] (map #(node % outer)) x))
+
+              (number? x)
+              (inline-fn (str x) outer)
+
+              :else
+              ""))]
     (tidy (str/join (into [] (map #(node % context)) nodes))
           (:quirks? context))))
 

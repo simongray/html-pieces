@@ -263,6 +263,55 @@
     (let [nodes (html/hiccup "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>")]
       (is (= nodes (html/parse (html/sanitize nodes)))))))
 
+(deftest hiccup-as-an-app-builds-it
+  (testing "a seq among the children is spliced in, e.g. of a for"
+    (let [x [:ul (for [s ["one" "two"]] [:li s])]]
+      (is (= [[:ul {} [:li {} "one"] [:li {} "two"]]] (html/hiccup x)))
+      (is (= "<ul><li>one</li><li>two</li></ul>" (html/sanitize x)))
+      (is (= "- one\n- two" (html/text x)))
+      (is (= "- one\n- two" (html/markdown x))))
+    (is (= "a *b*" (html/markdown [:p (list "a " (map identity [[:em "b"]]))])) "a seq in a seq")
+    (is (= "- one\n- two" (html/text [:ul [:li (list "one")] [:li (list "two")]]))
+        "the text of a tight list item, as nextjournal.markdown gives it")
+    (is (= "1. a\n2. b\n3. c" (html/text [:ol [:li "a"] (list [:li "b"] [:li "c"])]))
+        "in an ordered list, which counts on through a seq"))
+  (testing "nil is skipped"
+    (let [x [:p nil "a" nil [:b nil "b"]]]
+      (is (= [[:p {} "a" [:b {} "b"]]] (html/hiccup x)))
+      (is (= "<p>a<b>b</b></p>" (html/sanitize x)))
+      (is (= "ab" (html/text x)))
+      (is (= "a**b**" (html/markdown x)))))
+  (testing "a number is text"
+    (let [x [:p "Count: " 42]]
+      (is (= [[:p {} "Count: " "42"]] (html/hiccup x)))
+      (is (= "<p>Count: 42</p>" (html/sanitize x)))
+      (is (= "Count: 42" (html/text x)))
+      (is (= "Count: 42" (html/markdown x))))
+    (is (= ["42"] (html/hiccup 42)) "alone"))
+  (testing "a shorthand tag is its tag, with an id and a class"
+    (let [x [:div#main.intro [:h2.title "Hi"] [:p.lead.big "a"] [:p#end "b"]]]
+      (is (= [[:div {} [:h2 {} "Hi"] [:p {} "a"] [:p {} "b"]]] (html/hiccup x)))
+      (is (= "<div><h2>Hi</h2><p>a</p><p>b</p></div>" (html/sanitize x)))
+      (is (= "Hi\n\na\n\nb" (html/text x)))
+      (is (= "## Hi\n\na\n\nb" (html/markdown x))))
+    (let [allowed {:div #{:id :class} :p #{:id :class}}]
+      (is (= [[:div {:id "main" :class "intro"} [:p {:class "lead big"} "a"]]]
+             (html/hiccup [:div#main.intro [:p.lead.big "a"]] {:allowed-attributes allowed}))
+          "which are kept when they're allowed")
+      (is (= "<p class=\"x y z\" id=\"a\"></p>"
+             (html/sanitize [:p#a.x.y {:class "z"}] {:allowed-attributes allowed}))
+          "and an attribute map adds its class")
+      (is (= "<p id=\"b\"></p>"
+             (html/sanitize [:p#a {:id "b"}] {:allowed-attributes allowed}))
+          "and its id wins, as in most Hiccup renderers")))
+  (testing "the conventions together"
+    (let [x [:div.intro [:p.lead "Count: " 42] [:ul (for [s ["one" "two"]] [:li s])] nil]]
+      (is (= "<div><p>Count: 42</p><ul><li>one</li><li>two</li></ul></div>" (html/sanitize x)))
+      (is (= "Count: 42\n\n- one\n- two" (html/text x)))))
+  (testing "but HTML is read as HTML, where a tag can hold a dot or a #"
+    (is (= "<b>a</b>x" (html/sanitize "<b>a</b><p.lead>x</p.lead>")))
+    (is (= "ax" (html/text "<b>a</b><p.lead>x</p.lead>")))))
+
 (deftest writing-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
          (serializer/html [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]]

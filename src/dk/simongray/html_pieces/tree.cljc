@@ -269,6 +269,45 @@
                    (.set name-keywords s k))
                  k))))
 
+(defn shorthand?
+  "Whether the Hiccup `tag` is shorthand for an id or a class, e.g. :p.x."
+  [tag]
+  (let [s (name tag)]
+    (or (str/includes? s ".") (str/includes? s "#"))))
+
+;; e.g. :div#main.intro.lead, with the id before the classes, as every
+;; Hiccup renderer reads it
+(defn shorthand
+  "The tag, the id and the class that the shorthand `tag` stands for, e.g.
+  :p, \"x\" and \"a b\" for :p#x.a.b."
+  [tag]
+  (let [s    (name tag)
+        dot  (str/index-of s ".")
+        hash (str/index-of s "#")
+        id?  (and hash (or (nil? dot) (< hash dot)))]
+    [(name-keyword (subs s 0 (if id? hash dot)))
+     (when id? (subs s (inc hash) (or dot (count s))))
+     (when dot (str/replace (subs s (inc dot)) "." " "))]))
+
+;; A :class of the attributes is added to the shorthand's, and an :id of
+;; them wins over its id, as in hiccup, huff and Reagent, though not in
+;; Replicant
+(defn expanded
+  "The Hiccup element `node`, whose tag is shorthand, with its tag, id and
+  class written out, e.g. [:p#x.a \"y\"] as [:p {:id \"x\" :class \"a\"} \"y\"]."
+  [node]
+  (let [[tag id class]     (shorthand (node 0))
+        [_ attrs children] (parts node)]
+    (into [tag (cond-> attrs
+                 (and id (nil? (:id attrs)))
+                 (assoc :id id)
+
+                 class
+                 (assoc :class (if-some [more (:class attrs)]
+                                 (str class " " more)
+                                 class)))]
+          children)))
+
 ;; update-keys makes a transient even when there are no attributes
 (defn- attributes
   "The attributes `attrs` of a start tag token, by keyword."

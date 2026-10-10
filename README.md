@@ -78,8 +78,20 @@ Both `hiccup` and `sanitize` parse HTML and keep only what's safe, so the
 `<script>` and the `onclick` are gone, and the unclosed `<p>` and `<li>`
 are closed where a browser closes them. Plain text works too: it becomes
 paragraphs and line breaks, so you can give them any field without
-checking what's in it first. They also take Hiccup that you've built or
-changed yourself.
+checking what's in it first.
+
+Besides HTML and plain text, `hiccup`, `sanitize`, `text` and `markdown`
+take Hiccup that you've built or changed yourself, and read it as every
+Hiccup renderer does:
+
+- a seq among the children, e.g. from `for` or `map`, is spliced in
+- nil is skipped
+- a number is text
+- a tag such as `:p#intro.lead` is a `p` with an `:id` and a `:class`,
+  which are kept only when they're allowed, like any other attribute
+
+Conventions that only some renderers have, such as event handlers, style
+maps and a class as a collection, aren't supported.
 
 The result of `hiccup` goes straight into a Hiccup renderer. Its text is
 decoded, e.g. `&lt;` becomes `<`, so use a renderer that escapes text

@@ -173,13 +173,13 @@
 (defn- nodes-of
   "The nodes of `x`, which is a string, a node or nodes. A string is parsed
   with `opts` when it holds markup, or read as paragraphs when it's plain
-  text, and anything else is no nodes."
+  text."
   [x opts]
   (cond
     (string? x)       (if (markup? x) (parse x opts) (tree/paragraphs x))
     (tree/element? x) [x]
     (sequential? x)   x
-    :else             []))
+    :else             [x]))
 
 (defn hiccup
   "The HTML, plain text or Hiccup `x` as Hiccup that's safe to render, by
@@ -199,14 +199,21 @@
   ([x opts]
    (let [opts    (options opts)
          nodes   (nodes-of x opts)
+         built?  (not (string? x))
          allowed (:allowed-tags opts)
          dropped (:dropped-tags opts)
          layout? #(and (string? %) (whitespace/blank? %))]
      (letfn [(node [x]
                (cond
-                 (string? x)             [x]
-                 (not (tree/element? x)) []
-                 :else
+                 (string? x)
+                 [x]
+
+                 ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so
+                 ;; only Hiccup that's built has shorthand tags
+                 (and built? (tree/element? x) (tree/shorthand? (x 0)))
+                 (node (tree/expanded x))
+
+                 (tree/element? x)
                  (let [[tag attrs children] (tree/parts x)]
                    (if (dropped tag)
                      []
@@ -220,7 +227,17 @@
                            safe (safe-attributes opts tag attrs)]
                        (if (allowed tag)
                          [(into [tag safe] kids)]
-                         kids))))))]
+                         kids))))
+
+                 ;; e.g. of a for, spliced in as every Hiccup renderer does
+                 (seq? x)
+                 (into [] (mapcat node) x)
+
+                 (number? x)
+                 [(str x)]
+
+                 :else
+                 []))]
        (apply list (into [] (mapcat node) nodes))))))
 
 (defn sanitize
@@ -240,6 +257,7 @@
   ([x opts]
    (let [opts (options opts)]
      (render/walk (nodes-of x opts)
+                  (not (string? x))
                   render/text-inline
                   render/text-element
                   opts))))
@@ -254,6 +272,7 @@
   ([x opts]
    (let [opts (options opts)]
      (commonmark/fix-breaks (render/walk (nodes-of x opts)
+                                         (not (string? x))
                                          commonmark/inline
                                          commonmark/element
                                          opts)))))
