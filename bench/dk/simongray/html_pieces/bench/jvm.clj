@@ -62,7 +62,11 @@
    {:area :serialize :lib "html-pieces" :f html/sanitize}
    {:area :serialize :lib "hiccup"      :f #(str (hiccup2/html %))}
    {:area :serialize :lib "huff"        :f #(str (huff/html %))}
-   {:area :serialize :lib "replicant"   :f replicant/render}])
+   {:area :serialize :lib "replicant"   :f replicant/render}
+   {:area :built     :lib "html-pieces" :f html/sanitize}
+   {:area :built     :lib "hiccup"      :f #(str (hiccup2/html %))}
+   {:area :built     :lib "huff"        :f #(str (huff/html %))}
+   {:area :built     :lib "replicant"   :f replicant/render}])
 
 (defn allocated-per-call
   "The bytes that the current thread allocates per call of `f` with `x`, on

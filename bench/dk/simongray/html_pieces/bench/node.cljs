@@ -36,7 +36,9 @@
    {:area :markdown  :lib "html-pieces"   :f html/markdown}
    {:area :markdown  :lib "turndown"      :f #(.turndown ^js turndown %)}
    {:area :serialize :lib "html-pieces"   :f html/sanitize}
-   {:area :serialize :lib "replicant"     :f replicant/render}])
+   {:area :serialize :lib "replicant"     :f replicant/render}
+   {:area :built     :lib "html-pieces"   :f html/sanitize}
+   {:area :built     :lib "replicant"     :f replicant/render}])
 
 (defn eprintln
   "Print `xs` to stderr, so that stdout holds only the results."
