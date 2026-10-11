@@ -249,7 +249,8 @@
   "A new, empty text builder, with room for `n` characters on the JVM."
   ([]
    (builder 16))
-  ([n]
+  ;; JavaScript arrays can't reserve room, so `n` goes unused there
+  ([#_{:clj-kondo/ignore [:unused-binding]} n]
    #?(:clj  (StringBuilder. (int n))
       :cljs #js [])))
 
