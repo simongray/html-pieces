@@ -116,6 +116,11 @@
   paragraph, so that no line starts with hundreds of >."
   16)
 
+;; HTML Standard, 4.6.1 (2026-10-09): the elements that take a rel
+(def link-tags
+  "The elements that link somewhere when they have an href."
+  #{:a :area :link})
+
 (def default-options
   "The default of each option. Most are vars of the same name, and the
   others are:
@@ -132,7 +137,13 @@
     and Markdown, a repair that the HTML Standard doesn't make
   - :shorthand?, true to read a tag of Hiccup such as :p.x as a p with a
     class, or false to read each tag as it's written, as in the Hiccup
-    that parse gives"
+    that parse gives
+  - :plain-text?, true to read a string as plain text even when it holds
+    a tag, with its character references kept as they're written
+  - :rel, a link type, for links to take only the elements whose rel has
+    it
+  - :body?, false for links to take only the elements in the head of a
+    page"
   {:max-depth           max-depth
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
@@ -150,7 +161,11 @@
    :max-quote-depth     max-quote-depth
    :links?              false
    :quirks?             true
-   :shorthand?          true})
+   :shorthand?          true
+   :plain-text?         false
+   :link-tags           link-tags
+   :rel                 nil
+   :body?               true})
 
 (defn- options
   "The `opts` with the defaults of the keys that they leave out or give as
@@ -203,6 +218,131 @@
   ([x opts]
    (serializer/html (parse x opts) serializer/raw-text-elements)))
 
+(defn- tag-of
+  "The tag of the parsed `node`, or nil for text."
+  [node]
+  (when (vector? node)
+    (node 0)))
+
+;; HTML Standard, 4.12.3 (2026-10-09): the content of a template is a
+;; fragment of its own, outside the page
+(defn- page-elements
+  "The elements of the parsed `nodes` at any depth, in document order,
+  without the content of templates."
+  [nodes]
+  (->> nodes
+       (mapcat #(tree-seq (fn [node]
+                            (and (vector? node) (not= :template (node 0))))
+                          (fn [node]
+                            (subvec node 2))
+                          %))
+       (filter vector?)))
+
+(defn- unwrapped
+  "The parsed `nodes` with each element of the `tag` replaced by its
+  children."
+  [tag nodes]
+  (mapcat #(if (= tag (tag-of %)) (subvec % 2) [%]) nodes))
+
+;; HTML Standard, 13.2.6.4.4 (2026-10-09): the elements of a head go into
+;; it until another element or text that isn't whitespace, head tag or not
+(defn- page-head
+  "The elements in the head of the page with the parsed `nodes`."
+  [nodes]
+  (->> nodes
+       (unwrapped :html)
+       (unwrapped :head)
+       (remove #(and (string? %) (whitespace/blank? %)))
+       (take-while #(contains? tree/head-elements (tag-of %)))))
+
+;; HTML Standard, 2.4.1 and 4.2.3 (2026-10-09): the first base element with
+;; an href, in tree order, unless its URL fails or is data: or javascript:
+(defn- page-base
+  "The base URL of the page with the parsed `nodes` at the URL `page`."
+  [nodes page]
+  (let [href (some (fn [[tag attrs]]
+                     (when (= :base tag)
+                       (:href attrs)))
+                   (page-elements nodes))
+        base (some->> href (url/resolve page))]
+    (if (and base (not (contains? #{"data" "javascript"} (url/scheme base))))
+      base
+      page)))
+
+;; HTML Standard, 4.6.1 (2026-10-09): a set of link types separated by
+;; ASCII whitespace, compared ASCII case-insensitively
+(defn- link-types
+  "The link types of the `rel`, in lower case."
+  [rel]
+  (into #{}
+        (comp (remove str/blank?) (map tokenizer/lower-ascii))
+        (str/split (str rel) #"[\t\n\f\r ]+")))
+
+(defn elements
+  "The elements of the HTML or Hiccup `x`, read by `opts`, at any depth and
+  in document order, without the content of templates, which a browser
+  keeps out of the page."
+  ([x]
+   (elements x {}))
+  ([x opts]
+   (page-elements (parse x opts))))
+
+(defn head
+  "The elements in the head of the page `x`, read by `opts`: the children
+  of its head element, and those before the page's content, which a
+  browser puts in the head even when there's no head tag."
+  ([x]
+   (head x {}))
+  ([x opts]
+   (page-head (parse x opts))))
+
+(defn base-url
+  "The URL that the links of the page `x` are relative to, by `opts`: the
+  href of its first base element that has one, resolved against :base-url,
+  the URL of the page, or else :base-url."
+  ([x]
+   (base-url x {}))
+  ([x opts]
+   (page-base (parse x opts) (:base-url opts))))
+
+;; Webmention 3.1.2 (2017-01-12) reads link and a elements anywhere, and
+;; IndieAuth 4.1 (2024-07-11) and WebSub 4 (2026-06-02) link elements. The
+;; head alone keeps out a link that a comment adds, as indieauth.rocks's
+;; test C112 checks.
+(defn links
+  "The elements of the page `x` that link somewhere, in document order, by
+  `opts`, with each href resolved against the page's base URL, as base-url
+  gives it:
+
+  - :link-tags are the elements that count
+  - :rel is a link type, to take only the elements whose rel has it
+  - :body? false takes only the elements in the head of the page
+
+  An element whose href doesn't resolve is left out, e.g. a relative one
+  when the page has no base element and there's no :base-url.
+
+      (map (comp :href second)
+           (links \"<link rel=webmention href=/mention>\"
+                  {:base-url \"https://example.com/post\" :rel \"webmention\"}))
+      ;; => (\"https://example.com/mention\")"
+  ([x]
+   (links x {}))
+  ([x opts]
+   (let [{:keys [link-tags rel body?] :as opts} (options opts)
+         nodes   (parse x opts)
+         resolve (url/resolver (page-base nodes (:base-url opts)))
+         rel     (some-> rel tokenizer/lower-ascii)]
+     (for [[tag attrs :as element] (if body?
+                                     (page-elements nodes)
+                                     (page-head nodes))
+           :when (and (contains? link-tags tag)
+                      (contains? attrs :href)
+                      (or (nil? rel)
+                          (contains? (link-types (:rel attrs)) rel)))
+           :let  [href (resolve (:href attrs))]
+           :when href]
+       (assoc-in element [1 :href] href)))))
+
 (def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
@@ -215,7 +355,7 @@
   [dropped rel]
   (some->> (str/split (str rel) #"[\t\n\f\r ]+")
            (remove #(or (str/blank? %)
-                        (contains? dropped (str/lower-case %))))
+                        (contains? dropped (tokenizer/lower-ascii %))))
            seq
            (str/join " ")))
 
@@ -247,12 +387,13 @@
 (defn- nodes-of
   "The nodes of `x`, which is a string, a node or nodes. A string is parsed
   with `opts` when it holds markup, or read as paragraphs when it's plain
-  text."
+  text or :plain-text?."
   [x opts]
   (cond
-    (not (string? x)) (tree/nodes x)
-    (markup? x)       (parse x opts)
-    :else             (tree/paragraphs x)))
+    (not (string? x))   (tree/nodes x)
+    (:plain-text? opts) (tree/paragraphs x)
+    (markup? x)         (parse x opts)
+    :else               (tree/paragraphs (tree/decoded x))))
 
 ;; What :element-fn gives is sanitized again by the same walk, but without
 ;; :url-fn and :base-url, which its URLs have been through, and without
@@ -340,7 +481,9 @@
   that it returns as it was given is kept.
 
   Plain text becomes paragraphs with line breaks. Text is decoded, e.g.
-  &lt; is <, so use a renderer that escapes text."
+  &lt; is <, so use a renderer that escapes text. With :plain-text?, any
+  string is read as plain text, e.g. a summary that can hold a <, and
+  nothing in it is decoded."
   ([x]
    (hiccup x {}))
   ([x opts]

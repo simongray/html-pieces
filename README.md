@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.3.1"}
+dk.simongray/html-pieces {:mvn/version "0.4.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -78,7 +78,14 @@ Both `hiccup` and `sanitize` parse HTML and keep only what's safe, so the
 `<script>` and the `onclick` are gone, and the unclosed `<p>` and `<li>`
 are closed where a browser closes them. Plain text works too: it becomes
 paragraphs and line breaks, so you can give them any field without
-checking what's in it first.
+checking what's in it first. Text with a tag in it is read as HTML,
+though, so for a field that's always plain text, e.g. a summary that can
+hold a `<`, pass `{:plain-text? true}`:
+
+```clojure
+(html/hiccup "Use <b> for bold." {:plain-text? true})
+;; => ([:p {} "Use <b> for bold."])
+```
 
 Hiccup
 ------
@@ -185,9 +192,10 @@ returns.
 Parsing and serializing
 -----------------------
 
-To read HTML without sanitizing it, e.g. to find the links of a page, use
-`parse`, and to write it, use `serialize`. Neither is safe for HTML that
-you don't trust, so render what `hiccup` or `sanitize` gives instead.
+To read HTML without sanitizing it, e.g. to find the microformats of a
+page, use `parse`, and to write it, use `serialize`. Neither is safe for
+HTML that you don't trust, so render what `hiccup` or `sanitize` gives
+instead.
 
 In the tree that `parse` gives, each element is a vector of the tag, an
 attribute map and the children, and text is a string:
@@ -218,6 +226,29 @@ give the Hiccup of `parse` to `serialize` or another function, pass
 (html/serialize (html/parse "<x-a.b>t</x-a.b>") {:shorthand? false})
 ;; => "<x-a.b>t</x-a.b>"
 ```
+
+The links of a page
+-------------------
+
+To find what a whole page links to, e.g. the endpoint of Webmention, use
+`links`. It resolves each href against the page's base URL, which
+`base-url` gives, so pass the page's URL as `:base-url`:
+
+```clojure
+(html/links "<link rel=webmention href=/mention><p>Hi <a href=/about>me</a>"
+            {:base-url "https://example.com/post" :rel "webmention"})
+;; => ([:link {:rel "webmention" :href "https://example.com/mention"}])
+```
+
+The `:rel` option takes the links of one link type, in any case. The
+`:link-tags` option gives the elements that count, `a`, `area` and `link`
+by default. Pass `:body? false` to take only the links in the head of the
+page, e.g. for IndieAuth, since a comment on the page can add a link to
+its body.
+
+For more of a page, `head` gives the elements in its head, also of a page
+without a head tag, and `elements` gives all its elements in document
+order.
 
 Principles
 ----------

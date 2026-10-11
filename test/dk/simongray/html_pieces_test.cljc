@@ -201,6 +201,15 @@
            (html/hiccup "Line one\nline two\n\n\nSecond &amp; last\n")))
     (is (= [[:p {} "Write to <show@example.com> <3"]] (html/hiccup "Write to <show@example.com> <3"))
         "an address in angle brackets is no tag"))
+  (testing "any string as plain text, when :plain-text?"
+    (let [summary "Use <b> for bold &amp; more.\n\nThat's all."]
+      (is (= [[:p {} "Use <b> for bold &amp; more."] [:p {} "That's all."]]
+             (html/hiccup summary {:plain-text? true}))
+          "a tag and a character reference stay as they're written")
+      (is (= "<p>Use &lt;b&gt; for bold &amp;amp; more.</p><p>That's all.</p>"
+             (html/sanitize summary {:plain-text? true})))
+      (is (= "Use <b> for bold &amp; more.\n\nThat's all." (html/text summary {:plain-text? true})))
+      (is (= "Use \\<b\\> for bold \\&amp; more.\n\nThat's all." (html/markdown summary {:plain-text? true})))))
   (is (= [] (html/hiccup nil)))
   (is (= [] (html/hiccup "   "))))
 
@@ -333,6 +342,64 @@
          (html/parse "<head><meta charset=utf-8>\nHi <b>there"))
       "so do text and any other element, but not the whitespace between the elements of the head"))
 
+(deftest reading-a-page
+  (let [page (str "<!doctype html><html><head><title>T</title><base href=/blog/>"
+                  "<link rel=stylesheet href=s.css></head>\n"
+                  "<body><p>Hi <a href=post>there</a><template><a href=hidden>h</a></template>")]
+    (testing "the head of a page"
+      (is (= [[:title {} "T"] [:base {:href "/blog/"}] [:link {:rel "stylesheet" :href "s.css"}]]
+             (html/head page)))
+      (is (= [[:title {} "T"] [:link {:rel "me" :href "https://a/"}]]
+             (html/head "<title>T</title>\n<link rel=me href=https://a/><p>Hi<link rel=me href=https://b/>"))
+          "without a head tag, the elements before the content")
+      (is (= [] (html/head "<p>Hi</p>"))))
+    (testing "the base URL of a page"
+      (is (= "https://example.com/blog/" (html/base-url page {:base-url "https://example.com/post"})))
+      (is (= "https://example.com/post" (html/base-url "<p>Hi" {:base-url "https://example.com/post"}))
+          "the page's own URL without a base element")
+      (is (= "https://second.example/"
+             (html/base-url "<base target=_blank><p><base href=https://second.example/>" {:base-url "https://e/"}))
+          "the first base element that has an href, anywhere in the page")
+      (is (= "https://e/" (html/base-url "<base href='javascript:alert(1)'>" {:base-url "https://e/"}))
+          "but never a javascript: URL")
+      (is (nil? (html/base-url page)) "and none for a relative href without the page's URL"))
+    (testing "the elements of a page in document order"
+      (is (= [:html :head :title :base :link :body :p :a :template] (map first (html/elements page)))
+          "without the content of a template")
+      (is (= [[:ul {} [:li {} "1"] [:li {} "2"]] [:li {} "1"] [:li {} "2"]]
+             (html/elements [:ul (for [i [1 2]] [:li i])]))
+          "of Hiccup as an app builds it"))))
+
+(deftest the-links-of-a-page
+  (let [page (str "<html><head><link rel='Webmention other' href=/mention>"
+                  "<link rel=stylesheet href=s.css><link rel=webmention></head>"
+                  "<body><a rel=webmention href=/decoy>a</a><a rel=not-webmention href=/no>b</a>"
+                  "<area rel=webmention href=''>")
+        opts {:base-url "https://example.com/post?a=1#top"}
+        hrefs #(map (comp :href second) %)]
+    (is (= ["https://example.com/mention" "https://example.com/s.css" "https://example.com/decoy"
+            "https://example.com/no" "https://example.com/post?a=1"]
+           (hrefs (html/links page opts)))
+        "every element with an href, resolved, in document order, an empty one to the page itself")
+    (is (= ["https://example.com/mention" "https://example.com/decoy" "https://example.com/post?a=1"]
+           (hrefs (html/links page (assoc opts :rel "WebMention"))))
+        "by a link type, in any case")
+    (is (= ["https://example.com/mention"]
+           (hrefs (html/links page (assoc opts :rel "webmention" :link-tags #{:link} :body? false))))
+        "link elements in the head alone, so a comment can't add one, as indieauth.rocks's C112 checks")
+    (is (= [[:a {:rel "webmention" :href "https://example.com/decoy"} "a"]]
+           (html/links page (assoc opts :rel "webmention" :link-tags #{:a})))
+        "the elements as they are, but for the href"))
+  (is (= ["https://example.com/blog/mention"]
+         (map (comp :href second)
+              (html/links "<base href=/blog/><link rel=webmention href=mention>"
+                          {:base-url "https://example.com/post" :rel "webmention"})))
+      "relative to the page's base element")
+  (is (= ["https://mastodon.example/@me"]
+         (map (comp :href second)
+              (html/links "<p>Me: <a href=https://mastodon.example/@me>here</a>, <a href=/rel>there</a></p>")))
+      "without the page's URL, only absolute hrefs, e.g. in a profile's bio"))
+
 (deftest tables
   (is (= [[:table {} [:tr {} [:th {} "h1"] [:th {} "h2"]] [:tr {} [:td {} "1"] [:td {} "2"]]]]
          (html/parse "<table><tr><th>h1<th>h2<tr><td>1<td>2</table>"))
@@ -355,7 +422,16 @@
         "nor author, in any case and spacing, while the other link types stay")
     (is (= [[:a {:href "https://x/"} "x"]]
            (html/hiccup [:a {:rel "webmention token_endpoint" :href "https://x/"} "x"]))
-        "nor the endpoints that a page names, in Hiccup too"))
+        "nor the endpoints that a page names, in Hiccup too")
+    #?(:clj
+       (let [locale (java.util.Locale/getDefault)]
+         (try
+           (java.util.Locale/setDefault (java.util.Locale. "tr" "TR"))
+           (is (= [[:a {:rel "nofollow" :href "https://x/"} "x"]]
+                  (html/hiccup "<a rel='WEBMENTION LICENSE nofollow' href=https://x/>x</a>"))
+               "whatever the locale, in which the lower case of I can be a dotless i")
+           (finally
+             (java.util.Locale/setDefault locale))))))
   (testing "unless the HTML is trusted"
     (is (= [[:a {:rel "me" :href "https://mastodon.example/@owner"} "Mastodon"]]
            (html/hiccup "<a rel=me href=https://mastodon.example/@owner>Mastodon</a>" {:dropped-rels #{}})))))

@@ -415,7 +415,7 @@
       (apply list (drop 2 (element-at b 0)))
       (recur (close-top! b)))))
 
-(defn- decoded
+(defn decoded
   "The text `s` with its character references decoded and every other
   character kept, as HTML reads the text of a title: the RCDATA state of
   13.2.5.2 of the HTML Standard."
@@ -426,7 +426,7 @@
   "The plain text `s` as paragraphs, with blank lines between them and line
   breaks within."
   [s]
-  (let [text (whitespace/strip (decoded s))]
+  (let [text (whitespace/strip s)]
     (apply list (for [paragraph (str/split text #"\n[\t\n\f\r ]*\n")
                       :let  [lines (->> (str/split-lines paragraph)
                                         (map whitespace/strip)
