@@ -98,6 +98,11 @@
     (cond-> text
       (str/includes? text pre-mark) (str/replace pre-mark ""))))
 
+(def emphasis-kinds
+  "The kind of each element of emphasis: the elements of a kind look the
+  same."
+  {:strong :strong :b :strong :em :em :i :em :s :s :strike :s :del :s})
+
 (defn walk
   "The `nodes`, built Hiccup when `built?`, rendered as text by the
   functions `inline-fn`, `element-fn` and `join-fn`, starting from the map
@@ -112,7 +117,9 @@
   - :list, :ul or :ol inside a list
   - :index, a volatile that counts the list items
   - :pre, :code and :quotes, how many pre, code and blockquote elements
-    it's in, the element itself included"
+    it's in, the element itself included
+  - :strong, :em and :s, how many elements of each kind of emphasis it's
+    in, e.g. em or i, the element itself included"
   [nodes built? inline-fn element-fn join-fn context]
   (letfn [(node [x outer]
             (cond
@@ -135,7 +142,10 @@
 
                                 (= :pre tag)        (counted :pre)
                                 (= :code tag)       (counted :code)
-                                (= :blockquote tag) (counted :quotes))
+                                (= :blockquote tag) (counted :quotes)
+
+                                (emphasis-kinds tag)
+                                (counted (emphasis-kinds tag)))
                         inner (join-fn (into [] (map #(node % ctx)) children))]
                     (element-fn [tag attrs]
                                 (if (and (= :pre tag) (not (:pre outer)))
