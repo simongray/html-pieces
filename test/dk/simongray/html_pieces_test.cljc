@@ -266,6 +266,15 @@
         "from two texts")
     (is (= "1\\. x" (html/markdown [:p "1" (str (char 0x81)) ". x"]))
         "U+0081, the mark of digits itself, with one backslash"))
+  (testing "a character reference around control characters, which rendered text leaves out"
+    (is (= "\\&lt; \\&#x26; x" (html/markdown "<p>&amp;&#1;lt; &amp;#&#27;x2&#129;6; x</p>")))
+    (is (= "\\&amp; \\&#38; [l](https://x/?a\\&amp;b) ![\\&lt;](https://x/a.png)"
+           (html/markdown [:p "&\u0001amp; &#\u00013\u00018\u0001; "
+                           [:a {:href "https://x/?a&\u0001amp;b"} "l"] " "
+                           [:img {:src "https://x/a.png" :alt "&\u0001lt;"}]]))
+        "Hiccup, a URL and an alt text")
+    (is (= "&x" (html/markdown [:p (str "&" (apply str (repeat 100000 "\u0001")) "x")]))
+        "a long run of them, in linear time"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "
