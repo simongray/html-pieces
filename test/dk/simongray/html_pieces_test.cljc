@@ -286,6 +286,11 @@
         "inside other emphasis, next to other emphasis, and after a mark that's text")
     (is (= "*abc*" (html/markdown "<i>a</i><span><i>b</i></span><b></b><i>c</i>"))
         "with elements between that Markdown doesn't show"))
+  (testing "emphasis inside the same emphasis, without marks of its own"
+    (is (= "*a* *xa* **a** ~~abc~~"
+           (html/markdown "<p><em><em>a</em></em> <em>x<em>a</em></em> <b><b>a</b></b> <s>a<del>b</del><strike>c</strike></s></p>")))
+    (is (= "*a**bc***" (html/markdown [:p [:em "a" [:strong "b" [:i "c"]]]]))
+        "with other emphasis between"))
   (testing "a heading on one line, with each line break as a space"
     (is (= "## a b\n\n## c d e"
            (html/markdown "<h2>a<br>b</h2><h2>c <br><br> d<p>e</p></h2>"))))

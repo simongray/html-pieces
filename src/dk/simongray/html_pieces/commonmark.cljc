@@ -174,8 +174,8 @@
   {:h1 1 :h2 2 :h3 3 :h4 4 :h5 5 :h6 6})
 
 (def emphasis
-  "The Markdown marks around the text of each element of emphasis."
-  {:strong "**" :b "**" :em "*" :i "*" :s "~~" :strike "~~" :del "~~"})
+  "The Markdown marks around the text of each kind of emphasis."
+  {:strong "**" :em "*" :s "~~"})
 
 ;; CommonMark 0.31.2, section 2.1: the space separators of Unicode, and
 ;; the tab, line feed, form feed and carriage return
@@ -433,8 +433,13 @@
           (str "[" inner "](" (destination href) ")")
           inner))
 
-      (emphasis tag)
-      (emphasized (emphasis tag) inner)
+      ;; emphasis inside emphasis of its kind looks no different, and its
+      ;; marks would join those around it, e.g. an em in an em as **a**
+      (render/emphasis-kinds tag)
+      (let [kind (render/emphasis-kinds tag)]
+        (if (< 1 (kind ctx))
+          inner
+          (emphasized (emphasis kind) inner)))
 
       (= :code tag)
       (if (whitespace/blank? inner) inner (code-span inner))
