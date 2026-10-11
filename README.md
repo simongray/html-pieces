@@ -188,6 +188,16 @@ which writes it as a browser writes the `innerHTML` of an element:
 ;; => "<p class=\"x\">Hi<br>there<script>track()</script></p>"
 ```
 
+A tag of HTML can hold a dot or a #, e.g. that of the custom element
+`<x-a.b>`. To give the Hiccup of `parse` to `serialize` or another
+function, pass `{:shorthand? false}`, so that such a tag is read as it's
+written rather than as shorthand for a class or an id:
+
+```clojure
+(html/serialize (html/parse "<x-a.b>t</x-a.b>") {:shorthand? false})
+;; => "<x-a.b>t</x-a.b>"
+```
+
 Neither `parse` nor `serialize` is safe for HTML that you don't trust, so
 render what `hiccup` or `sanitize` gives instead.
 
