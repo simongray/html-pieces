@@ -203,6 +203,8 @@
       (= :a tag)                   (if shown? (str inner " (" href ")") inner)
       (= :li tag)                  (str (list-marker ctx)
                                         (whitespace/strip inner) "\n")
+      ;; the tab after the last cell goes with the end of its line
+      (#{:td :th} tag)             (str (whitespace/strip inner) "\t")
       (< 1 (:pre ctx 0))           inner
       ((:paragraph-tags ctx) tag)  (str "\n\n" inner "\n\n")
       ((:line-tags ctx) tag)       (str inner "\n")

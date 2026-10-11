@@ -323,6 +323,29 @@
            (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
   (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape"))
 
+(deftest a-page-without-its-head-end-tag
+  (let [page "<html><head><title>T</title><body><p>Hello</p>"]
+    (is (= [[:html {} [:head {} [:title {} "T"]] [:body {} [:p {} "Hello"]]]] (html/parse page))
+        "the body start tag closes the head, as a browser closes it")
+    (is (= [[:p {} "Hello"]] (html/hiccup page)))
+    (is (= "Hello" (html/text page))))
+  (is (= [[:head {} [:meta {:charset "utf-8"}] "\n"] "Hi " [:b {} "there"]]
+         (html/parse "<head><meta charset=utf-8>\nHi <b>there"))
+      "so do text and any other element, but not the whitespace between the elements of the head"))
+
+(deftest tables
+  (is (= [[:table {} [:tr {} [:th {} "h1"] [:th {} "h2"]] [:tr {} [:td {} "1"] [:td {} "2"]]]]
+         (html/parse "<table><tr><th>h1<th>h2<tr><td>1<td>2</table>"))
+      "an unclosed row doesn't hold the next")
+  (is (= [[:table {} [:thead {} [:tr {} [:th {} "h"]]] [:tbody {} [:tr {} [:td {} "1"]]]]]
+         (html/parse "<table><thead><tr><th>h<tbody><tr><td>1</table>"))
+      "nor an unclosed head of a table its body")
+  (is (= "h1\th2\n1\t2" (html/text "<table><tr><th>h1<th>h2<tr><td>1<td>2</table>"))
+      "cells apart in text")
+  (is (= "Prices\n\n| Item | Price in kr. |\n| --- | --- |\n| Tea \\| coffee | 25 |"
+         (html/markdown "<table><caption>Prices</caption><tr><th>Item<th>Price<br>in kr.<tr><td>Tea | coffee<td>25</table>"))
+      "and a table of GFM in Markdown, each row on its line"))
+
 (deftest links-that-speak-for-the-page
   (testing "a rel=me in a comment can't claim the owner's identity"
     (is (= [[:a {:href "https://evil.example/@me"} "me"]]

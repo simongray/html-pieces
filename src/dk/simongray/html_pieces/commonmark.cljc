@@ -435,6 +435,23 @@
      (-> (str/replace #"^(?:[\t\n\f\r ]*\\\n)+" "")
          (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
 
+;; GFM 0.29, section 4.10: a table is a header row, a delimiter row with as
+;; many cells, and the rows of its body
+(defn table-rows
+  "The Markdown `inner` of a table with a delimiter row after its first
+  row, which makes that row the header, and a blank line before the first
+  row, e.g. after a caption."
+  [inner]
+  (let [row?                   #(str/starts-with? % "|")
+        [before [head & rows]] (split-with (complement row?)
+                                           (str/split-lines inner))
+        cells                  (count (re-seq #" \|" (str head)))]
+    (if head
+      (str/join "\n" (concat (when (seq before) [(str/join "\n" before) ""])
+                             [head (apply str "|" (repeat cells " --- |"))]
+                             rows))
+      inner)))
+
 ;; CommonMark 0.31.2, section 4.2: an ATX heading is one line, and the #
 ;; at its end after a space or tab are a closing sequence, not text
 (defn heading-line
@@ -525,11 +542,15 @@
       (= :li tag)
       (str (render/list-marker ctx) (block-text inner) "\n")
 
+      ;; a row of a table is one line
       (#{:td :th} tag)
-      (str (block-text inner) " | ")
+      (str (str/replace (block-text inner) #"[\t ]*\\?\n[\t ]*" " ") " | ")
 
       (= :tr tag)
       (str "| " inner "\n")
+
+      (= :table tag)
+      (str "\n\n" (table-rows (block-text inner)) "\n\n")
 
       ((:paragraph-tags ctx) tag)
       (str "\n\n" (block-text inner) "\n\n")

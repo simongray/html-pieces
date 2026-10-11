@@ -34,11 +34,22 @@
   {:li     [#{:li} #{:ul :ol :menu}]
    :dt     [#{:dt :dd} #{:dl}]
    :dd     [#{:dt :dd} #{:dl}]
-   :tr     [#{:tr :td :th} #{:table}]
+   :tr     [#{:tr} #{:table}]
    :td     [#{:td :th} #{:tr :table}]
    :th     [#{:td :th} #{:tr :table}]
+   :thead  [#{:thead :tbody :tfoot} #{:table}]
+   :tbody  [#{:thead :tbody :tfoot} #{:table}]
+   :tfoot  [#{:thead :tbody :tfoot} #{:table}]
    :option [#{:option} #{:select}]
    :a      [#{:a} #{:td :th :caption :applet :marquee :object :template}]})
+
+;; HTML Standard, 13.2.6.4.4, the start tags of the "in head" insertion mode
+(def head-elements
+  "The elements whose start tag goes into an open head. Any other start
+  tag, and text that isn't whitespace, closes the head first, since its
+  end tag is optional."
+  #{:base :basefont :bgsound :link :meta :noframes :noscript :script :style
+    :template :title})
 
 (def headings
   "The headings, whose start tag closes a heading that's the current node,
@@ -225,13 +236,23 @@
         (recur (close-top! b) (dec k))))
     b))
 
+(defn- in-head?
+  "Whether the current element of the builder `b` is the head, or a
+  noscript in it."
+  [b]
+  (and (open? b #{:head})
+       (#{:head :noscript} (tag-at b (top b)))))
+
 (defn- open-element!
   "The builder `b` with the element `tag` and its `attrs` opened, or
   appended when it's void, `self-closing?` in SVG or MathML, or past the
   :max-depth of the builder. The elements that its start tag implies an
   end for are closed first."
   [b tag attrs self-closing?]
-  (let [b (if (and (block-elements tag) (open-index b #{:p} paragraph-scope))
+  (let [b (if (and (not (head-elements tag)) (in-head? b))
+            (close-through! b #{:head} #{})
+            b)
+        b (if (and (block-elements tag) (open-index b #{:p} paragraph-scope))
             (close-through! b #{:p} #{})
             b)
         b (if-let [[tags boundaries] (implied-end tag)]
@@ -360,8 +381,14 @@
                    (str/includes? token nul-text) (str/replace nul-text ""))
             text (cond-> text
                    (and drop-newline? (str/starts-with? text "\n")) (subs 1))]
-        (cond-> b
-          (seq text) (append! text)))
+        (if (and (in-head? b) (not (whitespace/blank? text)))
+          ;; the whitespace at the start stays in the head
+          (let [space (re-find #"^[\t\n\f\r ]*" text)]
+            (-> (cond-> b (seq space) (append! space))
+                (close-through! #{:head} #{})
+                (append! (subs text (count space)))))
+          (cond-> b
+            (seq text) (append! text))))
 
       (= :start-tag (:type token))
       (let [{:keys [name attrs self-closing?]} token
