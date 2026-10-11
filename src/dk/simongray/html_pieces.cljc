@@ -308,7 +308,7 @@
 ;; Webmention 3.1.2 (2017-01-12) reads link and a elements anywhere, and
 ;; IndieAuth 4.1 (2024-07-11) and WebSub 4 (2026-06-02) link elements. The
 ;; head alone keeps out a link that a comment adds, as indieauth.rocks's
-;; test C112 checks.
+;; test C112 checks, and a base element that it adds too.
 (defn links
   "The elements of the page `x` that link somewhere, in document order, by
   `opts`, with each href resolved against the page's base URL, as base-url
@@ -316,7 +316,8 @@
 
   - :link-tags are the elements that count
   - :rel is a link type, to take only the elements whose rel has it
-  - :body? false takes only the elements in the head of the page
+  - :body? false takes only the elements in the head of the page, and the
+    base element from there too
 
   An element whose href doesn't resolve is left out, e.g. a relative one
   when the page has no base element and there's no :base-url.
@@ -329,12 +330,13 @@
    (links x {}))
   ([x opts]
    (let [{:keys [link-tags rel body?] :as opts} (options opts)
-         nodes   (parse x opts)
+         nodes   (cond->> (parse x opts)
+                   (not body?) page-head)
          resolve (url/resolver (page-base nodes (:base-url opts)))
          rel     (some-> rel tokenizer/lower-ascii)]
      (for [[tag attrs :as element] (if body?
                                      (page-elements nodes)
-                                     (page-head nodes))
+                                     nodes)
            :when (and (contains? link-tags tag)
                       (contains? attrs :href)
                       (or (nil? rel)

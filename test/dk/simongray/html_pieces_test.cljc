@@ -395,6 +395,14 @@
               (html/links "<base href=/blog/><link rel=webmention href=mention>"
                           {:base-url "https://example.com/post" :rel "webmention"})))
       "relative to the page's base element")
+  (let [page "<head><link rel=webmention href=/mention></head><body><p>A comment<base href=https://decoy.example/>"
+        opts {:base-url "https://example.com/post" :rel "webmention"}]
+    (is (= ["https://decoy.example/mention"]
+           (map (comp :href second) (html/links page opts)))
+        "a base element in the body counts, as it does in a browser")
+    (is (= ["https://example.com/mention"]
+           (map (comp :href second) (html/links page (assoc opts :body? false))))
+        "but not for the head alone, so a comment can't move its links either"))
   (is (= ["https://mastodon.example/@me"]
          (map (comp :href second)
               (html/links "<p>Me: <a href=https://mastodon.example/@me>here</a>, <a href=/rel>there</a></p>")))

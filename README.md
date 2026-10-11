@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.4.0"}
+dk.simongray/html-pieces {:mvn/version "0.4.1"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -243,8 +243,8 @@ To find what a whole page links to, e.g. the endpoint of Webmention, use
 The `:rel` option takes the links of one link type, in any case. The
 `:link-tags` option gives the elements that count, `a`, `area` and `link`
 by default. Pass `:body? false` to take only the links in the head of the
-page, e.g. for IndieAuth, since a comment on the page can add a link to
-its body.
+page, and its base from there too, e.g. for IndieAuth, since a comment on
+the page can add a link or a base element to its body.
 
 For more of a page, `head` gives the elements in its head, also of a page
 without a head tag, and `elements` gives all its elements in document
