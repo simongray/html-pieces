@@ -80,37 +80,24 @@ are closed where a browser closes them. Plain text works too: it becomes
 paragraphs and line breaks, so you can give them any field without
 checking what's in it first.
 
-Besides HTML and plain text, every function but `markup?` takes Hiccup
-that you've built or changed yourself, and reads it as every Hiccup
-renderer does:
+Hiccup
+------
+
+The result of `hiccup` goes straight into a Hiccup renderer. Its text is
+decoded, e.g. `&lt;` becomes `<`, so use a renderer that escapes text
+again, such as Replicant, Reagent or `hiccup2.core/html` (the older
+`hiccup.core/html` doesn't escape text).
+
+Every function but `markup?` also takes Hiccup that you've built or
+changed yourself, and reads it as every Hiccup renderer does:
 
 - a seq among the children, e.g. from `for` or `map`, is spliced in
 - nil is skipped
 - a number is text
-- a tag such as `:p#intro.lead` is a `p` with an `:id` and a `:class`,
-  which are kept only when they're allowed, like any other attribute
+- a tag such as `:p#intro.lead` is a `p` with an `:id` and a `:class`
 
 Conventions that only some renderers have, such as event handlers, style
 maps and a class as a collection, aren't supported.
-
-The result of `hiccup` goes straight into a Hiccup renderer. Its text is
-decoded, e.g. `&lt;` becomes `<`, so use a renderer that escapes text
-again, such as Replicant, Reagent or `hiccup2.core/html`. The older
-`hiccup.core/html` doesn't escape text.
-
-**NOTE:** Relative URLs are left out, since a browser would resolve them
-against your page rather than the page the HTML came from. If you know
-that page, pass its URL as `:base-url`, and they're resolved against it as
-a browser resolves them:
-
-```clojure
-(html/hiccup "<a href='/about'>About</a>"
-             {:base-url "https://example.com/blog/"})
-;; => ([:a {:href "https://example.com/about"} "About"])
-```
-
-For a URL outside HTML, e.g. the link of a feed, `resolve` in the
-`dk.simongray.html-pieces.url` namespace does the same.
 
 Options
 -------
@@ -125,6 +112,23 @@ of each link:
 (html/text piece {:links? true})
 ;; => "Hi!\n\nNice post (https://example.com/),\nthanks.\n\n- one\n- two"
 ```
+
+### Relative URLs
+
+Relative URLs are left out, since a browser would resolve them against
+your page rather than the page the HTML came from. If you know that page,
+pass its URL as `:base-url`:
+
+```clojure
+(html/hiccup "<a href='/about'>About</a>"
+             {:base-url "https://example.com/blog/"})
+;; => ([:a {:href "https://example.com/about"} "About"])
+```
+
+For a URL outside HTML, e.g. the link of a feed, `resolve` in the
+`dk.simongray.html-pieces.url` namespace does the same.
+
+### What's kept
 
 To change what `hiccup` keeps, pass your own tables. An image loads from
 its own server, which can see who views it. To keep images from loading,
@@ -164,12 +168,15 @@ that isn't allowed, also pass `:trusted-element-fn? true`. For the text
 or Markdown of the result, give `text` or `markdown` what `hiccup`
 returns.
 
-Parsing
--------
+Parsing and serializing
+-----------------------
 
 To read HTML without sanitizing it, e.g. to find the links of a page, use
-`parse`. Each element of its tree is a vector of the tag, an attribute
-map and the children, and text is a string:
+`parse`, and to write it, use `serialize`. Neither is safe for HTML that
+you don't trust, so render what `hiccup` or `sanitize` gives instead.
+
+In the tree that `parse` gives, each element is a vector of the tag, an
+attribute map and the children, and text is a string:
 
 ```clojure
 (html/parse "<p class=x>See <a href=/about>this</a><script>track()</script>")
@@ -177,37 +184,33 @@ map and the children, and text is a string:
 ;;      [:script {} "track()"]])
 ```
 
-Given Hiccup that you've built, `parse` gives it the same shape, so that
-you can walk any Hiccup the same way.
+For Hiccup that you've built, `parse` gives the same shape, so that you
+can walk any Hiccup the same way.
 
-To write HTML or Hiccup as HTML without sanitizing it, use `serialize`,
-which writes it as a browser writes the `innerHTML` of an element:
+Given HTML or Hiccup, `serialize` writes it as a browser writes the
+`innerHTML` of an element:
 
 ```clojure
 (html/serialize "<P class=x>Hi<br/>there<script>track()</script>")
 ;; => "<p class=\"x\">Hi<br>there<script>track()</script></p>"
 ```
 
-A tag of HTML can hold a dot or a #, e.g. that of the custom element
-`<x-a.b>`. To give the Hiccup of `parse` to `serialize` or another
-function, pass `{:shorthand? false}`, so that such a tag is read as it's
-written rather than as shorthand for a class or an id:
+A tag in HTML can hold a dot or a #, e.g. that of the custom element
+`<x-a.b>`, but in Hiccup they're shorthand for a class or an id. When you
+give the Hiccup of `parse` to `serialize` or another function, pass
+`{:shorthand? false}`, so that each tag is read as it's written:
 
 ```clojure
 (html/serialize (html/parse "<x-a.b>t</x-a.b>") {:shorthand? false})
 ;; => "<x-a.b>t</x-a.b>"
 ```
 
-Neither `parse` nor `serialize` is safe for HTML that you don't trust, so
-render what `hiccup` or `sanitize` gives instead.
-
 Principles
 ----------
 
 - **Standards first.** The tokenizer follows the HTML Standard and passes
   the tokenizer tests of html5lib-tests, so HTML is read as a browser
-  reads it, and URLs are resolved by the URL Standard. The code cites the
-  sections that it implements.
+  reads it. The code cites the sections that it implements.
 - **Pieces, not documents.** The tree builder only has the rules that
   pieces of HTML need. What it leaves out, e.g. the repairs of tables, or
   SVG and MathML, is noted as a TODO in the namespace docstrings.
@@ -223,8 +226,7 @@ Principles
   attributes and URLs that a page can render safely. Both `text` and
   `markdown` leave out the control characters that a terminal would obey,
   and `markdown` also escapes what a Markdown renderer would read as
-  markup. Only `parse` and `serialize` keep HTML as it is, and they say
-  so.
+  markup. Only `parse` and `serialize` keep HTML as it is.
 - **One codebase.** The library is written in `.cljc`. Its only dependency
   is data.json, which reads the table of character references when the
   code compiles.
