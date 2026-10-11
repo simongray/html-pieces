@@ -73,6 +73,19 @@
    :abbr       #{:title}
    :dfn        #{:title}})
 
+;; rel-me and rel-author of microformats, rel-license, Webmention 3.1.2
+;; (2017-01-12), Pingback 1.0, IndieAuth 4.1 (2024-07-11) and Micropub 5.3
+;; (2017-05-23). RelMeAuth and Mastodon trust a rel=me anywhere on a page,
+;; and Webmention reads a elements. IndieAuth and Micropub read link
+;; elements alone, but the rels of a microformats parser include a elements.
+(def dropped-rels
+  "The link types that are taken out of a rel, since they'd speak for the
+  page that shows the HTML: me, which says that the link goes to another
+  profile of the page's owner, author, license, and the endpoints that a
+  page names for Webmention, Pingback, IndieAuth, Micropub and Microsub."
+  #{"me" "author" "license" "webmention" "pingback" "authorization_endpoint"
+    "token_endpoint" "indieauth-metadata" "micropub" "microsub"})
+
 ;; HTML Standard, "Index", the attributes whose value is a URL, with
 ;; background and longdesc of older pages and xlink:href of SVG
 (def url-attributes
@@ -124,6 +137,7 @@
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
    :allowed-attributes  allowed-attributes
+   :dropped-rels        dropped-rels
    :allowed-schemes     allowed-schemes
    :url-attributes      url-attributes
    :url-list-attributes url-list-attributes
@@ -193,11 +207,24 @@
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
+;; HTML Standard, 4.6.1: a set of tokens separated by ASCII whitespace, and
+;; link types are ASCII case-insensitive
+(defn- kept-rels
+  "The `rel` without the link types of `dropped`, or nil when none is
+  left."
+  [dropped rel]
+  (some->> (str/split (str rel) #"[\t\n\f\r ]+")
+           (remove #(or (str/blank? %)
+                        (contains? dropped (str/lower-case %))))
+           seq
+           (str/join " ")))
+
 (defn- safe-attributes
   "The attributes `attrs` of the element `tag` that `opts` allows, with
-  their URLs checked."
+  their URLs checked and the :dropped-rels left out of a rel."
   [opts tag attrs]
-  (let [{:keys [allowed-attributes url-attributes url-list-attributes url-fn]
+  (let [{:keys [allowed-attributes url-attributes url-list-attributes url-fn
+                dropped-rels]
          schemes :allowed-schemes} opts]
     (into {} (for [[k v] attrs
                    :when (contains? (get allowed-attributes tag) k)
@@ -208,6 +235,9 @@
                               (url-list-attributes k)
                               (url/checked-list url-fn schemes
                                                 (= :srcset k) v)
+
+                              (= :rel k)
+                              (kept-rels dropped-rels v)
 
                               :else
                               v)]
@@ -293,7 +323,9 @@
   these keys of `opts`:
 
   - elements of :allowed-tags are kept, with the attributes of
-    :allowed-attributes
+    :allowed-attributes, but without the :dropped-rels in a rel, e.g. the
+    me that would let the writer of a comment sign in as the owner of the
+    page
   - elements of :dropped-tags are removed with their content
   - other elements are replaced by their children
   - a URL is resolved against :base-url, if it's given, and kept as

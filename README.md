@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.3.0"}
+dk.simongray/html-pieces {:mvn/version "0.3.1"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -141,6 +141,20 @@ take `:src` out of the allowed attributes of `:img`:
              {:allowed-attributes attributes})
 ;; => ([:img {:alt "A cat"}])
 ```
+
+A link keeps its `rel`, but not the link types that would speak for your
+page, which `html/dropped-rels` lists: `me`, `author`, `license`, and the
+endpoints of Webmention, IndieAuth and the like. RelMeAuth and Mastodon
+take a `rel="me"` anywhere on a page as another profile of its owner, so
+a comment with one could sign its writer in as you:
+
+```clojure
+(html/hiccup "<a rel='me nofollow' href='https://mastodon.example/@mallory'>Hi</a>")
+;; => ([:a {:rel "nofollow" :href "https://mastodon.example/@mallory"} "Hi"])
+```
+
+For HTML that you trust, e.g. the links of your own profile, pass
+`:dropped-rels #{}`.
 
 To change an element rather than keep it or leave it out, pass an
 `:element-fn`. It's given each element that's kept, once its attributes

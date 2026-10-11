@@ -323,6 +323,20 @@
            (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
   (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape"))
 
+(deftest links-that-speak-for-the-page
+  (testing "a rel=me in a comment can't claim the owner's identity"
+    (is (= [[:a {:href "https://evil.example/@me"} "me"]]
+           (html/hiccup "<a rel=\"me\" href=\"https://evil.example/@me\">me</a>")))
+    (is (= "<a rel=\"nofollow ugc\" href=\"https://x/\">x</a>"
+           (html/sanitize "<a rel=\"nofollow  ME\tugc author\" href=\"https://x/\">x</a>"))
+        "nor author, in any case and spacing, while the other link types stay")
+    (is (= [[:a {:href "https://x/"} "x"]]
+           (html/hiccup [:a {:rel "webmention token_endpoint" :href "https://x/"} "x"]))
+        "nor the endpoints that a page names, in Hiccup too"))
+  (testing "unless the HTML is trusted"
+    (is (= [[:a {:rel "me" :href "https://mastodon.example/@owner"} "Mastodon"]]
+           (html/hiccup "<a rel=me href=https://mastodon.example/@owner>Mastodon</a>" {:dropped-rels #{}})))))
+
 (deftest options
   (testing "an option in the place of each default, one map for every function"
     (is (= [[:b {} [:i {} [:u {}] "x"]]] (html/parse "<b><i><u>x" {:max-depth 2})))
