@@ -81,6 +81,11 @@
   "Whether a character ends a run of hidden characters."
   (complement hidden?))
 
+(def reference-end?
+  "Whether a character ends what can come between the & and the ; of a
+  character reference: it's neither a #, an ASCII alphanumeric nor hidden."
+  (complement #(or (tokenizer/alphanumeric? %) (identical? \# %) (hidden? %))))
+
 ;; CommonMark 0.31.2, sections 4.1 to 4.3 and 5.2
 (def block-start
   "What starts a heading, a thematic break or a list at the start of a
@@ -113,6 +118,15 @@
   (re-pattern (str "&(?=[" hidden-chars "]*(?:#[" hidden-chars "]*)?"
                    "(?:[0-9A-Za-z][" hidden-chars "]*){1,32};)")))
 
+;; CommonMark 0.31.2, section 2.5: a character reference can come from two
+;; texts or more
+(def reference-mark
+  "The mark before an ampersand that the texts after it could make the
+  start of a character reference, until the block around it is rendered.
+  It's a C1 control that stands for no character of windows-1252, which
+  rendered text leaves out."
+  (str (char 0x8D)))
+
 (defn escaped
   "The text `s` with the characters that start inline markup or a character
   reference escaped."
@@ -120,11 +134,24 @@
   (cond-> (backslashed s escapes)
     (str/includes? s "&") (str/replace reference-start (constantly "\\&"))))
 
+;; A reference holds no other ampersand, so only the last one can be open,
+;; and only while no more than a #, alphanumerics and hidden characters
+;; come after it
+(defn reference-marked
+  "The escaped text `s` with a mark before an ampersand that the texts
+  after it could make the start of a character reference."
+  [s]
+  (let [n (count s)
+        i (str/last-index-of s "&")]
+    (if (and i (== n (tokenizer/run-end s n (inc i) reference-end?)))
+      (str (subs s 0 i) reference-mark (subs s i))
+      s)))
+
 (defn escaped-text
   "The text `s` with what Markdown would read as markup escaped, including
   the start of a block."
   [s]
-  (let [s     (escaped s)
+  (let [s     (reference-marked (escaped s))
         n     (count s)
         start (tokenizer/run-end s n 0 space-end?)
         lead  (tokenizer/char-at s n start)]
@@ -364,12 +391,46 @@
                 (tokenizer/append! b "\\"))
               (recur (inc i) j))))))))
 
+;; the regex sees no further than a reference could reach, up to its ;
+(defn reference-at?
+  "Whether the Markdown `md` of length `n` has an ampersand at `i` that
+  starts a character reference."
+  [md n i]
+  (and (identical? \& (tokenizer/char-at md n i))
+       (let [end (tokenizer/run-end md n (inc i) reference-end?)]
+         (some? (re-find reference-start (subs md i (min n (inc end))))))))
+
+;; Most blocks hold no mark, and are given back as they are. A reference
+;; can't go on past the end of a block, so the block decides every mark.
+(defn fix-references
+  "The Markdown `md` of a block with a backslash for each mark of an
+  ampersand that starts a character reference, and without the other
+  marks."
+  [md]
+  (let [n (count md)
+        i (tokenizer/index-of md n reference-mark 0)]
+    (if (== n i)
+      md
+      (let [b (tokenizer/builder)]
+        (loop [start 0 i i]
+          (if (== n i)
+            (or (tokenizer/take-text! (tokenizer/append! b (subs md start n)))
+                "")
+            ;; the ampersand is past any hidden characters, and the last of
+            ;; the marks in front of it decides
+            (let [after (tokenizer/run-end md n (inc i) hidden-end?)
+                  j     (tokenizer/index-of md n reference-mark (inc i))]
+              (tokenizer/append! b (subs md start i))
+              (when (and (< after j) (reference-at? md n after))
+                (tokenizer/append! b "\\"))
+              (recur (inc i) j))))))))
+
 (defn block-text
-  "The Markdown `inner` of a block with its marks of digits fixed, and
-  without the line breaks and the whitespace at its ends."
+  "The Markdown `inner` of a block with its marks fixed, and without the
+  line breaks and the whitespace at its ends."
   [inner]
   (whitespace/strip
-   (cond-> (fix-digits inner)
+   (cond-> (fix-references (fix-digits inner))
      (str/includes? inner "\\\n")
      (-> (str/replace #"^(?:[\t\n\f\r ]*\\\n)+" "")
          (str/replace #"(?:\\\n[\t\n\f\r ]*)+$" "")))))
@@ -476,9 +537,9 @@
       ((:line-tags ctx) tag)
       (str (block-text inner) "\n")
 
-      ;; the nodes themselves, whose marks of digits are all decided here
+      ;; the nodes themselves, whose marks are all decided here
       (nil? tag)
-      (fix-digits inner)
+      (fix-references (fix-digits inner))
 
       :else
       inner)))

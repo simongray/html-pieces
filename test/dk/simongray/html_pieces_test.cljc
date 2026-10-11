@@ -275,6 +275,18 @@
         "Hiccup, a URL and an alt text")
     (is (= "&x" (html/markdown [:p (str "&" (apply str (repeat 100000 "\u0001")) "x")]))
         "a long run of them, in linear time"))
+  (testing "a character reference from two texts"
+    (is (= "\\&lt; \\&#38; [&](https://x/)lt; &amp\n\n- \\&gt;\n\n> \\&lt; \\&gt;"
+           (html/markdown "<p>&amp;<span>lt;</span> &amp;#<a href=\"javascript:x\">38;</a> <a href=\"https://x/\">&amp;</a>lt; &amp;am<span>p</span></p><ul><li>&amp;<span>gt;</span></li></ul><blockquote>&amp;lt; &amp;<span>gt;</span></blockquote>")))
+    (is (= "\\&lt; \\&amp; **\\&amp;** &**lt;** &`lt;`"
+           (html/markdown [:p "&" "lt; " "&" "a" "m" "p; " [:b "&"] [:b "amp;"] " &" [:b "lt;"] " &" [:code "lt;"]]))
+        "Hiccup, and emphasis that joins them")
+    (is (= "\\&lt;" (html/markdown "&amp;<span>lt;</span>")) "at the top level")
+    (is (= "\\&lt;" (html/markdown [:p [:img {:alt "&"}] "lt;"])) "an alt text as text")
+    (is (= "\\&amp; \\&#12;" (html/markdown [:p "&" "\u0001" "amp; &\u0001#" "1" "2;"]))
+        "around control characters and a mark of digits")
+    (is (= "\\&amp; \\&amp;" (html/markdown [:p "&" (str (char 0x8D)) "amp; " (str (char 0x8D) "&") "amp;"]))
+        "U+008D, the mark of a reference itself, with one backslash"))
   (testing "a URL, a link text or an alt text that can't end its link"
     (is (= (str "[t](https://ok/\\)[z]\\(javascript:alert\\(3\\)) "
                 "[x\\](javascript:alert(1)) \\[y](https://a.example/) "
