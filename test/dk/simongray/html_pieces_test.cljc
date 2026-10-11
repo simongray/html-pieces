@@ -425,7 +425,17 @@
       (is (= tree (html/parse tree)) "parsed HTML as it is")))
   (testing "but HTML is read as HTML, where a tag can hold a dot or a #"
     (is (= "<b>a</b>x" (html/sanitize "<b>a</b><p.lead>x</p.lead>")))
-    (is (= "ax" (html/text "<b>a</b><p.lead>x</p.lead>")))))
+    (is (= "ax" (html/text "<b>a</b><p.lead>x</p.lead>"))))
+  (testing "and so is the Hiccup that parse gives, when :shorthand? is false"
+    (let [tree (html/parse "<b>a</b><p.lead>x</p.lead><x-a.b>y</x-a.b><p#c.d>z</p#c.d>")
+          opts {:shorthand? false}]
+      (is (= [[:b {} "a"] [:p.lead {} "x"] [:x-a.b {} "y"] [:p#c.d {} "z"]]
+             tree
+             (html/parse tree opts)))
+      (is (= [[:b {} "a"] "x" "y" "z"] (html/hiccup tree opts)))
+      (is (= "<b>a</b>xyz" (html/sanitize tree opts)))
+      (is (= "axyz" (html/text tree opts)))
+      (is (= "**a**xyz" (html/markdown tree opts))))))
 
 (defn reply-element
   "The `element` of a reply from another site as a page shows it."
@@ -475,7 +485,10 @@
     (let [para (fn [[tag _ & children :as e]] (if (= :div tag) [:p.x (seq children) 1] e))]
       (is (= "<p>a<b>b</b>1</p>" (html/sanitize "<div>a<b>b</b></div>" {:element-fn para})))
       (is (= "<p class=\"x\">a<b>b</b>1</p>"
-             (html/sanitize "<div>a<b>b</b></div>" {:element-fn para :trusted-element-fn? true})))))
+             (html/sanitize "<div>a<b>b</b></div>" {:element-fn para :trusted-element-fn? true})))
+      (is (= "<p.x>a<b>b</b>1</p.x>"
+             (html/sanitize "<div>a<b>b</b></div>" {:element-fn para :trusted-element-fn? true :shorthand? false}))
+          "whose tags are read as they're written when :shorthand? is false")))
   (testing "no function, the default"
     (is (= [[:h1 {} "x"]] (html/hiccup "<h1>x</h1>" {:element-fn nil})))))
 
@@ -507,4 +520,12 @@
                             [(keyword "a b") "c"]
                             [:input {:disabled false :value nil}]
                             [:p []] [nil] [:frame "x"] 1]))
-        "names that HTML can't hold, false and nil, void elements, and Hiccup of any shape")))
+        "names that HTML can't hold, false and nil, void elements, and Hiccup of any shape"))
+  (testing "the Hiccup that parse gives, as it is when :shorthand? is false"
+    (is (= "<x-a.b>t</x-a.b>" (html/serialize (html/parse "<x-a.b>t</x-a.b>") {:shorthand? false}))
+        "a custom element whose name holds a dot")
+    (let [[[_ _ & children]] (html/parse "<div><x-a.b>t</x-a.b><p#c.d>u</p#c.d></div>")]
+      (is (= "<x-a.b>t</x-a.b><p#c.d>u</p#c.d>" (html/serialize children {:shorthand? false}))
+          "the children of an element"))
+    (is (= "<p class=\"x\">y</p>" (html/serialize [:p.x "y"]))
+        "while built Hiccup has shorthand tags, by default")))

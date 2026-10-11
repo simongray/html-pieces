@@ -127,8 +127,12 @@
               (inline-fn x outer)
 
               ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so only
-              ;; Hiccup that's built has shorthand tags
-              (and built? (tree/element? x) (tree/shorthand? (x 0)))
+              ;; Hiccup that's built has shorthand tags, and only when
+              ;; :shorthand?
+              (and built?
+                   (tree/element? x)
+                   (tree/shorthand? (x 0))
+                   (:shorthand? outer))
               (node (tree/expanded x) outer)
 
               (tree/element? x)

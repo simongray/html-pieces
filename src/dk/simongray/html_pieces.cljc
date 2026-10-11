@@ -116,7 +116,10 @@
   - :trusted-element-fn?, true to keep what :element-fn gives unchecked
   - :links?, true to put the URL of each link after it in plain text
   - :quirks?, true to read a C1 control character as windows-1252 in text
-    and Markdown, a repair that the HTML Standard doesn't make"
+    and Markdown, a repair that the HTML Standard doesn't make
+  - :shorthand?, true to read a tag of Hiccup such as :p.x as a p with a
+    class, or false to read each tag as it's written, as in the Hiccup
+    that parse gives"
   {:max-depth           max-depth
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
@@ -132,7 +135,8 @@
    :line-tags           line-tags
    :max-quote-depth     max-quote-depth
    :links?              false
-   :quirks?             true})
+   :quirks?             true
+   :shorthand?          true})
 
 (defn- options
   "The `opts` with the defaults of the keys that they leave out or give as
@@ -165,13 +169,16 @@
   as they're written. Comments and DOCTYPEs are left out.
 
   Hiccup is read as every Hiccup renderer reads it, e.g. a tag such as
-  :p.x is a p with a class."
+  :p.x is a p with a class. When :shorthand? is false, each tag is read as
+  it's written, as it should be in the Hiccup that parse gives, e.g. the
+  :x-a.b of <x-a.b>."
   ([x]
    (parse x {}))
   ([x opts]
-   (if (string? x)
-     (tree/build (tokenizer/tokens x) (:max-depth (options opts)))
-     (apply list (mapcat tree/canonical (tree/nodes x))))))
+   (let [{:keys [max-depth shorthand?]} (options opts)]
+     (if (string? x)
+       (tree/build (tokenizer/tokens x) max-depth)
+       (apply list (mapcat #(tree/canonical % shorthand?) (tree/nodes x)))))))
 
 (defn serialize
   "The HTML or Hiccup `x`, read by `opts`, as HTML that's written as a
@@ -237,8 +244,12 @@
                 [x]
 
                 ;; a tag of HTML can hold a dot or a #, e.g. <p.lead>, so
-                ;; only Hiccup that's built has shorthand tags
-                (and built? (tree/element? x) (tree/shorthand? (x 0)))
+                ;; only Hiccup that's built has shorthand tags, and only
+                ;; when :shorthand?
+                (and built?
+                     (tree/element? x)
+                     (tree/shorthand? (x 0))
+                     (:shorthand? opts))
                 (node (tree/expanded x))
 
                 (tree/element? x)
@@ -273,7 +284,7 @@
               (let [x (element-fn element)]
                 (cond
                   (identical? x element) [element]
-                  trusted?               (tree/canonical x)
+                  trusted?               (tree/canonical x (:shorthand? opts))
                   :else                  (sanitized [x] true again))))]
       (into [] (mapcat node) nodes))))
 

@@ -319,18 +319,21 @@
 
 (defn canonical
   "The nodes of the built Hiccup `x`, as a parser gives them: text, and
-  elements with their tags written out and an attribute map."
-  [x]
+  elements with an attribute map, whose shorthand tags are written out
+  when `expand?`."
+  [x expand?]
   (cond
     (string? x)
     [x]
 
     (element? x)
-    (let [[tag attrs children] (parts (cond-> x (shorthand? (x 0)) expanded))]
-      [(into [tag attrs] (mapcat canonical) children)])
+    (let [[tag attrs children] (parts (cond-> x
+                                        (and expand? (shorthand? (x 0)))
+                                        expanded))]
+      [(into [tag attrs] (mapcat #(canonical % expand?)) children)])
 
     (seq? x)
-    (into [] (mapcat canonical) x)
+    (into [] (mapcat #(canonical % expand?)) x)
 
     (number? x)
     [(str x)]
