@@ -107,7 +107,8 @@
 (def digits-run
   "The characters that can come before a mark of digits on a line that
   they start: digits, spaces and hidden characters, marks among them."
-  (apply str "0123456789 " (filter hidden? (map char (range 160)))))
+  (apply str "0123456789 " render/indent-mark
+         (filter hidden? (map char (range 160)))))
 
 ;; CommonMark 0.31.2, section 2.5. Each hidden run belongs to the character
 ;; before it, so that a long one is matched in linear time.
@@ -469,6 +470,20 @@
       (str/ends-with? line "#")
       (str/replace #"(?<=[\t ])#+$" #(str "\\" %)))))
 
+;; CommonMark 0.31.2, section 5.2: the number of an ordered list item has
+;; at most nine digits and no sign. It has no reversed list either, so the
+;; numbers of one are written as they count, and a reader shows them
+;; counting up from the first.
+(defn list-marker
+  "The Markdown marker of a list item with `attrs` in the context `ctx`:
+  its number in an ordered list, a dash in another list, and nothing
+  outside a list."
+  [attrs ctx]
+  (case (:list ctx)
+    :ol (str (-> (render/list-number attrs ctx) (max 0) (min 999999999)) ". ")
+    :ul "- "
+    ""))
+
 (defn inline
   "The Markdown of the text `s` in the context `ctx`: as it is in a pre,
   collapsed in a code element, and escaped elsewhere."
@@ -539,8 +554,21 @@
         (str "\n\n" inner "\n\n")
         (str "\n\n" (quoted (block-text inner)) "\n\n"))
 
+      ;; CommonMark 0.31.2, section 5.2: the lines of an item after its
+      ;; first are indented by the width of its marker
       (= :li tag)
-      (str (render/list-marker ctx) (block-text inner) "\n")
+      (let [marker (list-marker attrs ctx)]
+        (str marker (render/indented (block-text inner) (count marker) false)
+             "\n"))
+
+      ;; CommonMark 0.31.2, section 5.3: only a list that starts at 1 can
+      ;; interrupt a paragraph
+      (and (#{:ul :ol} tag) (:nested ctx))
+      (render/nested-list inner
+                          (if (and (= :ol tag) (not= 1 (:start ctx)))
+                            "\n\n"
+                            "\n")
+                          ctx)
 
       ;; a row of a table is one line
       (#{:td :th} tag)

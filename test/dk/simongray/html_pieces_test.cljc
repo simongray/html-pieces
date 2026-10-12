@@ -149,7 +149,23 @@
              (html/hiccup "<a href=\"java&#9;script:alert(1)\">x</a><a href=\"#y\">y</a>"
                           {:base-url "javascript:alert(2)"})))
       (is (= [[:a {} "x"]] (html/hiccup "<a href=\"http://x:y/\">x</a>" opts))
-          "and left out when it isn't valid"))))
+          "and left out when it isn't valid"))
+    (testing "against the base element of a page, as a browser resolves them"
+      (let [page "<head><BASE HREF=/blog/></head><p><a href=post>p</a> <img src=a.png alt=A>"]
+        (is (= [[:p {} [:a {:href "https://show.example/blog/post"} "p"] " "
+                 [:img {:src "https://show.example/blog/a.png" :alt "A"}]]]
+               (html/hiccup page opts)))
+        (is (= "p (https://show.example/blog/post) A" (html/text page (assoc opts :links? true))))
+        (is (= "[p](https://show.example/blog/post) ![A](https://show.example/blog/a.png)" (html/markdown page opts))))
+      (is (= [[:a {:href "https://other.example/post"} "p"]]
+             (html/hiccup "<base href=https://other.example/><a href=post>p</a>"))
+          "without the page's URL when the base is absolute")
+      (is (= [[:a {:href "https://show.example/notes/post"} "p"]]
+             (html/hiccup "<base href='javascript:alert(1)'><a href=post>p</a>" opts))
+          "but never a javascript: URL")
+      (is (= [[:p {} "a <base href=https://x/> b"]]
+             (html/hiccup "a <base href=https://x/> b" (assoc opts :plain-text? true)))
+          "and not in plain text"))))
 
 (deftest hostile-markup
   (testing "nesting stops at max-depth, so that no walk of the tree overflows the stack"
@@ -238,7 +254,23 @@
            (html/text "<a href=\"javascript:alert(1)\">x</a> <a href=\"https://x/&#10;y\">w</a> <img alt=\"a&#10;&#10;b\">"
                       {:links? true}))
         "nor in a URL or an alt text, and no URL that isn't http, https or mailto"))
-  (is (= "" (html/text [[:p []] [nil] [1 "x"]])) "Hiccup of any shape"))
+  (is (= "" (html/text [[:p []] [nil] [1 "x"]])) "Hiccup of any shape")
+  (testing "lists in lists, indented under their item"
+    (is (= "- one\n  - a\n  - b\n- two"
+           (html/text "<ul><li>one<ul><li>a</li><li>b</li></ul></li><li>two</li></ul>")))
+    (is (= "9. i\n10. j\n    - deep\n\n    after"
+           (html/text "<ol start=9><li>i<li>j<ul><li>deep</li></ul>after</ol>"))
+        "by the width of the marker, and the rest of the item too")
+    (is (= "- a\n  - b\n- c" (html/text "<ul><li>a</li><ul><li>b</li></ul><li>c</li></ul>"))
+        "and a list right inside a list under the item before it")
+    (is (= "- code\n\n    x\n      y" (html/text "<ul><li>code<pre>  x\n    y</pre></li></ul>"))
+        "with a pre's own indentation kept")
+    (is (= "- a\n  - b" (html/text [:ul [:li "a" [:ul (for [x ["b"]] [:li x])]]])) "Hiccup"))
+  (testing "the numbers of an ordered list"
+    (is (= "3. c\n4. d" (html/text "<ol start=3><li>c<li>d</ol>")) "from its start")
+    (is (= "3. c\n2. b\n1. a" (html/text "<ol reversed><li>c<li>b<li>a</ol>")) "down when reversed")
+    (is (= "1. a\n10. j\n11. k" (html/text "<ol><li>a<li value=10>j<li>k</ol>")) "on from an item's value")
+    (is (= "1. a" (html/text "<ol start=x><li>a</ol>")) "from 1 when the start isn't a number")))
 
 (deftest rendering-markdown
   (is (= "## Notes\n\nHello **world** and *you*, [link](https://x/)\\\nnext line.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\\\n> lines\n\n---\n\n```\ncode block\n```\n\n![art](https://x/a.png) `x`"
@@ -330,7 +362,38 @@
   (testing "code with backticks, and emphasis without text"
     (is (= "``` `` ```x\n\n````\na\n```\n# not code\n````\n\n```\nx y\n```"
            (html/markdown "<b></b><code></code><p><code>``</code>x</p><pre>a\n```\n# not code</pre><pre><b>x</b> <code>y</code></pre>"))))
-  (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape"))
+  (is (= "" (html/markdown [[:p []] [nil]])) "Hiccup of any shape")
+  (testing "lists in lists, indented under their item, as CommonMark nests them"
+    (is (= "- one\n  - a\n  - b\n- two"
+           (html/markdown "<ul><li>one<ul><li>a</li><li>b</li></ul></li><li>two</li></ul>")))
+    (is (= "3. three\n4. four\n   1. x\n   2. y\n5. five"
+           (html/markdown "<ol start=3><li>three<li>four<ol><li>x<li>y</ol><li>five</ol>")))
+    (is (= "- one\n\n  5. e" (html/markdown "<ul><li>one<ol start=5><li>e</li></ol></li></ul>"))
+        "after a blank line when it doesn't start at 1, which can't interrupt a paragraph")
+    (is (= "- para one\n\n  para two\n- next"
+           (html/markdown "<ul><li><p>para one</p><p>para two</p></li><li>next</li></ul>"))
+        "and every block of an item")
+    (is (= "- code\n\n  ```\n    x\n  ```" (html/markdown "<ul><li>code<pre>  x</pre></li></ul>")))
+    (is (= "> - q\n>   - r" (html/markdown "<blockquote><ul><li>q<ul><li>r</li></ul></li></ul></blockquote>")))
+    (is (= "- a\n  - b\n- c" (html/markdown "<ul><li>a</li><ul><li>b</li></ul><li>c</li></ul>"))
+        "and a list right inside a list under the item before it")
+    (is (= "- 2024\\. a\n  - 1999\\. b"
+           (html/markdown "<ul><li>2024. a<ul><li>1999<span>. b</span></ul></ul>"))
+        "with the start of a block escaped on an indented line"))
+  (testing "the numbers of an ordered list"
+    (is (= "3. c\n4. d" (html/markdown "<ol start=3><li>c<li>d</ol>")))
+    (is (= "0. a" (html/markdown "<ol start=-2><li>a</ol>")) "never below 0, which CommonMark can't write")))
+
+(deftest excerpts
+  (let [notes "<h2>Show notes</h2><p>In this episode we talk about <b>Clojure</b>.</p>"]
+    (is (= "Show notes In this episode…" (html/excerpt notes 28)) "at the end of a word, on one line")
+    (is (= (html/text notes) (str/replace (html/excerpt notes 100) " In" "\n\nIn")) "all of it when it fits")
+    (is (= "Show notes In [more]" (html/excerpt notes 20 {:ellipsis " [more]"})))
+    (is (= "Supercali…" (html/excerpt "Supercalifragilisticexpialidocious" 10)) "within a longer word")
+    (is (= "ab…" (html/excerpt (str "ab" "\uD83D\uDE00" "cd") 4)) "but not inside a surrogate pair")
+    (is (= "a\u00A0b c…" (html/excerpt "<p>a&nbsp;b c d e f</p>" 6)) "where a no-break space doesn't end a word")
+    (is (= "" (html/excerpt notes 0)))
+    (is (= "…" (html/excerpt notes 1)))))
 
 (deftest a-page-without-its-head-end-tag
   (let [page "<html><head><title>T</title><body><p>Hello</p>"]

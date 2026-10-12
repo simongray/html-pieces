@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.5.0"}
+dk.simongray/html-pieces {:mvn/version "0.6.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -87,6 +87,14 @@ hold a `<`, pass `{:plain-text? true}`:
 ;; => ([:p {} "Use <b> for bold."])
 ```
 
+For a line of text in a list or a notification, `excerpt` gives the text
+cut at the end of a word:
+
+```clojure
+(html/excerpt piece 20)
+;; => "Hi! Nice post,…"
+```
+
 Hiccup
 ------
 
@@ -131,6 +139,9 @@ pass its URL as `:base-url`:
              {:base-url "https://example.com/blog/"})
 ;; => ([:a {:href "https://example.com/about"} "About"])
 ```
+
+In a whole page, a `<base href>` counts too, as it does in a browser, so
+the URLs are resolved against the URL that `base-url` gives.
 
 For a URL outside HTML, e.g. the link of a feed, `resolve` in the
 `dk.simongray.html-pieces.url` namespace does the same. Both resolve URLs

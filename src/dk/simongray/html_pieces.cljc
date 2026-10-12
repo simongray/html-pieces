@@ -143,7 +143,8 @@
   - :rel, a link type, for links to take only the elements whose rel has
     it
   - :body?, false for links to take only the elements in the head of a
-    page"
+    page
+  - :ellipsis, what excerpt puts where it cuts the text"
   {:max-depth           max-depth
    :allowed-tags        allowed-tags
    :dropped-tags        dropped-tags
@@ -165,7 +166,8 @@
    :plain-text?         false
    :link-tags           link-tags
    :rel                 nil
-   :body?               true})
+   :body?               true
+   :ellipsis            "…"})
 
 (defn- options
   "The `opts` with the defaults of the keys that they leave out or give as
@@ -397,6 +399,21 @@
     (markup? x)         (parse x opts)
     :else               (tree/paragraphs (tree/decoded x))))
 
+;; Most HTML has no base element, and is then not walked for one
+(defn- readable
+  "The nodes of `x` and the full `opts` to render them by, with each URL
+  resolved against the base URL of the page, as base-url gives it, when
+  `x` is HTML."
+  [x opts]
+  (let [opts  (options opts)
+        nodes (nodes-of x opts)
+        base  (if (and (string? x)
+                       (not (:plain-text? opts))
+                       (re-find #"<[bB][aA][sS][eE][\t\n\f\r />]" x))
+                (page-base nodes (:base-url opts))
+                (:base-url opts))]
+    [nodes (resolving (assoc opts :base-url base))]))
+
 ;; What :element-fn gives is sanitized again by the same walk, but without
 ;; :url-fn and :base-url, which its URLs have been through, and without
 ;; :element-fn, so that it's called once for each element. An element that
@@ -471,9 +488,9 @@
     page
   - elements of :dropped-tags are removed with their content
   - other elements are replaced by their children
-  - a URL is resolved against :base-url, if it's given, and kept as
-    :url-fn rewrites it when its scheme is one of :allowed-schemes, so a
-    relative URL is left out without a :base-url
+  - a URL is resolved against the base URL of the page, as base-url gives
+    it, and kept as :url-fn rewrites it when its scheme is one of
+    :allowed-schemes, so a relative URL is left out without a base URL
   - an element that's kept, once its attributes and children are safe,
     is given to :element-fn, and replaced by the Hiccup that it returns,
     e.g. a p in place of an h1
@@ -489,8 +506,8 @@
   ([x]
    (hiccup x {}))
   ([x opts]
-   (let [opts (resolving (options opts))]
-     (apply list (sanitized (nodes-of x opts) (not (string? x)) opts)))))
+   (let [[nodes opts] (readable x opts)]
+     (apply list (sanitized nodes (not (string? x)) opts)))))
 
 ;; The text of a script or a style that's allowed is escaped too, unlike in
 ;; a browser, since text that held its end tag would end it early
@@ -509,8 +526,8 @@
   ([x]
    (text x {}))
   ([x opts]
-   (let [opts (resolving (options opts))]
-     (render/walk (nodes-of x opts)
+   (let [[nodes opts] (readable x opts)]
+     (render/walk nodes
                   (not (string? x))
                   render/text-inline
                   render/text-element
@@ -525,13 +542,49 @@
   ([x]
    (markdown x {}))
   ([x opts]
-   (let [opts (resolving (options opts))]
-     (commonmark/fix-breaks (render/walk (nodes-of x opts)
+   (let [[nodes opts] (readable x opts)]
+     (commonmark/fix-breaks (render/walk nodes
                                          (not (string? x))
                                          commonmark/inline
                                          commonmark/element
                                          commonmark/joined
                                          opts)))))
+
+(defn- cut-at
+  "The index at which to cut the text `s` to at most `limit` characters:
+  at the last space up to there, or else at the limit, but never inside a
+  surrogate pair."
+  [s limit]
+  (let [space (if (= \space (nth s limit))
+                limit
+                (str/last-index-of s " " limit))]
+    (cond
+      (and space (pos? space))
+      space
+
+      (and (pos? limit)
+           #?(:clj  (Character/isHighSurrogate (.charAt ^String s (dec limit)))
+              :cljs (<= 0xD800 (.charCodeAt s (dec limit)) 0xDBFF)))
+      (dec limit)
+
+      :else
+      limit)))
+
+(defn excerpt
+  "The text of the HTML or Hiccup `x` as one line of at most `n`
+  characters, by `opts`, cut at the end of a word, with the :ellipsis
+  where it's cut, or at `n` within a longer word."
+  ([x n]
+   (excerpt x n {}))
+  ([x n opts]
+   (let [s        (whitespace/collapse (text x opts))
+         ellipsis (:ellipsis (options opts))]
+     (if (<= (count s) n)
+       s
+       (let [limit (- n (count ellipsis))]
+         (if (pos? limit)
+           (str (whitespace/strip (subs s 0 (cut-at s limit))) ellipsis)
+           (subs ellipsis 0 (max 0 n))))))))
 
 #?(:clj
    (comment
