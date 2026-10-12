@@ -86,6 +86,13 @@
   (is (nil? (url/resolve nil "relative")))
   (is (= "https://x.y/" (url/resolve nil "HTTPS://X.y"))))
 
+(deftest hosts-as-a-browser-reads-them
+  (is (= "http://127.0.0.1/" (url/resolve nil "http://0x7f.1/")))
+  (is (= "http://xn--bcher-kva.example/" (url/resolve nil "http://Bücher.example/")))
+  (is (= "http://[::1]/" (url/resolve nil "http://[0:0::1]/")))
+  (is (nil? (url/resolve nil "http://exa mple.org/")))
+  (is (= "file:///C:/demo" (url/resolve nil "file:///C|/demo"))))
+
 (deftest one-base-for-many-urls
   (let [resolve (url/resolver "https://example.com/blog/post")]
     (is (= ["https://example.com/blog/a" "https://example.com/b" "https://x.example/"]

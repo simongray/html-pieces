@@ -31,7 +31,7 @@ from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/html-pieces {:mvn/version "0.4.1"}
+dk.simongray/html-pieces {:mvn/version "0.5.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -133,7 +133,9 @@ pass its URL as `:base-url`:
 ```
 
 For a URL outside HTML, e.g. the link of a feed, `resolve` in the
-`dk.simongray.html-pieces.url` namespace does the same.
+`dk.simongray.html-pieces.url` namespace does the same. Both resolve URLs
+with [whatwg-url](https://github.com/simongray/whatwg-url), the way
+browsers do.
 
 ### What's kept
 
@@ -272,9 +274,9 @@ Principles
   `markdown` leave out the control characters that a terminal would obey,
   and `markdown` also escapes what a Markdown renderer would read as
   markup. Only `parse` and `serialize` keep HTML as it is.
-- **One codebase.** The library is written in `.cljc`. Its only dependency
-  is data.json, which reads the table of character references when the
-  code compiles.
+- **One codebase.** The library is written in `.cljc`. Its dependencies
+  are whatwg-url, which resolves URLs, and data.json, which reads the
+  table of character references when the code compiles.
 
 Performance
 -----------
