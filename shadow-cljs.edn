@@ -1,6 +1,13 @@
 {:deps   {:aliases [:cljs]}
  :builds {;; clojure -M:cljs compile test
-          :test {:target    :node-test
-                 :output-to "target/node-tests.js"
-                 :ns-regexp "-test$"
-                 :autorun   true}}}
+          :test         {:target    :node-test
+                         :output-to "target/node-tests.js"
+                         :ns-regexp "-test$"
+                         :autorun   true}
+          ;; clojure -M:cljs compile browser-test, then
+          ;; node test/browser-run.mjs target/browser-test (the html5lib
+          ;; tests, which read their files in Node, stay out)
+          :browser-test {:target    :browser-test
+                         :test-dir  "target/browser-test"
+                         :ns-regexp "(?<!-node)-test$"
+                         :runner-ns dk.simongray.html-pieces.browser-runner}}}
