@@ -112,7 +112,9 @@ changed yourself, and reads it as every Hiccup renderer does:
 - a tag such as `:p#intro.lead` is a `p` with an `:id` and a `:class`
 
 Conventions that only some renderers have, such as event handlers, style
-maps and a class as a collection, aren't supported.
+maps and a class as a collection, aren't supported. When an option allows
+an attribute that holds one, `serialize` and `sanitize` throw with the
+`:type` `:dk.simongray.html-pieces/unwritable-attribute`.
 
 Options
 -------
@@ -287,13 +289,24 @@ Principles
   markup. Only `parse` and `serialize` keep HTML as it is.
 - **One codebase.** The library is written in `.cljc`. Its dependencies
   are whatwg-url, which resolves URLs, and data.json, which reads the
-  table of character references when the code compiles.
+  table of character references when the namespace loads on the JVM, and
+  when it compiles for ClojureScript.
 
 Performance
 -----------
 
 See the [benchmarks](doc/benchmarks.md) for how html-pieces compares with
 libraries that do the same jobs, on the JVM, in Node and in the browser.
+
+Versions
+--------
+
+Until 1.0, a release that changes the API gets a new minor version, e.g.
+from 0.4.2 to 0.5.0, and one that only fixes gets a new patch version,
+e.g. from 0.4.2 to 0.4.3. A function that's renamed or removed goes
+without a deprecated alias, and the commit of each release says what
+changed. The tests run in CI on Java 11 and 25, in Node and in a
+headless Chrome.
 
 Development
 -----------

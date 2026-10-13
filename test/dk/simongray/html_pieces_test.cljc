@@ -619,7 +619,25 @@
       (is (= [[:b {} "a"] "x" "y" "z"] (html/hiccup tree opts)))
       (is (= "<b>a</b>xyz" (html/sanitize tree opts)))
       (is (= "axyz" (html/text tree opts)))
-      (is (= "**a**xyz" (html/markdown tree opts))))))
+      (is (= "**a**xyz" (html/markdown tree opts)))))
+  (testing "a style map, a class as a collection or a handler can't be written as HTML"
+    (let [allowed {:allowed-attributes {:div #{:style :class :onclick}}}
+          failure (fn [f]
+                    (try (f) nil
+                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+                           (ex-data e))))]
+      (doseq [[attrs n] [[{:style {:color "red"}} "style"]
+                         [{:class ["a" "b"]} "class"]
+                         [{:onclick (fn [_])} "onclick"]]]
+        (is (= {:type ::html/unwritable-attribute :attribute n}
+               (failure #(html/serialize [:div attrs "x"]))
+               (failure #(html/sanitize [:div attrs "x"] allowed)))
+            n))
+      (is (= "<div>x</div>" (html/sanitize [:div {:style {:color "red"}} "x"]))
+          "unless the attribute is left out anyway")
+      (is (= [[:div {:style {:color "red"}} "x"]]
+             (html/hiccup [:div {:style {:color "red"}} "x"] allowed))
+          "and Hiccup keeps it for a renderer that takes it"))))
 
 (defn reply-element
   "The `element` of a reply from another site as a page shows it."

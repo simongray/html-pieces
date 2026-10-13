@@ -80,10 +80,25 @@
               (recur (inc i) (inc i)))
           (recur (inc i) start))))))
 
+(defn- unwritable
+  "The exception of the attribute of the name `n` whose value `v` HTML
+  can't hold, e.g. a style map or an event handler of a Hiccup renderer."
+  [n v]
+  (ex-info (str "The " n " attribute holds a "
+                (if (fn? v) "function" "collection")
+                ", which HTML can't hold as text")
+           {:type :dk.simongray.html-pieces/unwritable-attribute
+            :attribute n}))
+
 (defn attribute!
   "Append the attribute of the name `n` and the value `v` to the builder
-  `b`: the name alone when `v` is true."
+  `b`: the name alone when `v` is true.
+
+  A collection or a function as `v` throws ::unwritable-attribute, rather
+  than be written as its printed form."
   [b n v]
+  (when (or (coll? v) (fn? v))
+    (throw (unwritable n v)))
   (cond-> (-> b
               (tokenizer/append! " ")
               (tokenizer/append! n))
