@@ -26,27 +26,22 @@ results on each.
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. For the latest release, add it
-from [Clojars](https://clojars.org/dk.simongray/html-pieces) to the
-`:deps` in your `deps.edn`:
+It requires Clojure 1.11+ and Java 11+. Add it from
+[Clojars](https://clojars.org/dk.simongray/html-pieces) to the `:deps` in
+your `deps.edn`:
 
 ```clojure
 dk.simongray/html-pieces {:mvn/version "0.7.0"}
 ```
 
-For changes that aren't released yet, use the SHA of the latest commit on
-`master` instead:
+For unreleased changes, depend on the latest commit on `master` instead.
+In shadow-cljs, a Git dependency only works through `deps.edn`, so set
+`:deps true` in your `shadow-cljs.edn` too.
 
-```clojure
-dk.simongray/html-pieces
-{:git/url "https://github.com/simongray/html-pieces"
- :git/sha "…"}
-```
+The main functions
+------------------
 
-For ClojureScript, shadow-cljs only reads Git dependencies from
-`deps.edn`, so also set `:deps true` in your `shadow-cljs.edn`.
-
-Then try it on a piece of HTML:
+Here's what each of them makes of a piece of HTML:
 
 ```clojure
 (require '[dk.simongray.html-pieces :as html])
@@ -297,16 +292,6 @@ Performance
 
 See the [benchmarks](doc/benchmarks.md) for how html-pieces compares with
 libraries that do the same jobs, on the JVM, in Node and in the browser.
-
-Versions
---------
-
-Until 1.0, a release that changes the API gets a new minor version, e.g.
-from 0.4.2 to 0.5.0, and one that only fixes gets a new patch version,
-e.g. from 0.4.2 to 0.4.3. A function that's renamed or removed goes
-without a deprecated alias, and the commit of each release says what
-changed. The tests run in CI on Java 11 and 25, in Node and in a
-headless Chrome.
 
 Development
 -----------
