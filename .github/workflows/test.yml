@@ -13,7 +13,7 @@ env:
 jobs:
   test:
     name: Java 25, Node 24
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -72,7 +72,7 @@ jobs:
 
   floor:
     name: Java 11
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
