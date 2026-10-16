@@ -199,6 +199,22 @@ that isn't allowed, also pass `:trusted-element-fn? true`. For the text
 or Markdown of the result, give `text` or `markdown` what `hiccup`
 returns.
 
+### Headings
+
+The headings of a piece start wherever its writer chose, often at `h1`,
+which would break the outline of your page. To fit them in, pass
+`:heading-level`, the level that the highest of them takes, e.g. 3 when
+your page's own headings are `h1` and `h2`. The others keep their
+distance below it:
+
+```clojure
+(html/hiccup "<h1>Links</h1><p>Show notes</p><h2>More</h2>"
+             {:heading-level 3})
+;; => ([:h3 {} "Links"] [:p {} "Show notes"] [:h4 {} "More"])
+```
+
+For Markdown with these headings, give `markdown` what `hiccup` returns.
+
 Parsing and serializing
 -----------------------
 

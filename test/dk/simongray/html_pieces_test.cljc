@@ -694,6 +694,23 @@
   (testing "no function, the default"
     (is (= [[:h1 {} "x"]] (html/hiccup "<h1>x</h1>" {:element-fn nil})))))
 
+(deftest headings-under-those-of-the-page
+  (let [opts {:heading-level 3}]
+    (is (= [[:h3 {} "Links"] [:p {} "a"] [:h5 {} "More"] [:ul {} [:li {} [:h4 {} "x"]]]]
+           (html/hiccup '([:h1 {} "Links"] [:p {} "a"] [:h3 {} "More"] [:ul {} [:li {} [:h2 {} "x"]]]) opts))
+        "the highest at the level, and the others as far below it as before")
+    (is (= [[:h3 {} "Deep"] [:h4 {} "deeper"]] (html/hiccup '([:h5 "Deep"] [:h6 {} "deeper"]) opts))
+        "up as well as down")
+    (is (= [[:h3 {} "a"] [:h6 {} "b"]] (html/hiccup '([:h1 {} "a"] [:h6 {} "b"]) opts))
+        "none past h6")
+    (is (= [[:p {} "none"]] (html/hiccup '([:p {} "none"]) opts)))
+    (is (= "<h3>Links</h3><p>a</p><h4>More</h4>" (html/sanitize "<h1>Links</h1><p>a</p><h2>More</h2>" opts))
+        "in HTML, and in what sanitize writes")
+    (is (= [[:p {} "Big"] [:h3 {} "Least"]]
+           (html/hiccup "<h1>Big</h1><h3>Least</h3>" (assoc opts :element-fn reply-element)))
+        "the headings of the result, once :element-fn has replaced its elements"))
+  (is (= [[:h1 {} "x"]] (html/hiccup "<h1>x</h1>" {:heading-level nil})) "no level, the default"))
+
 (deftest writing-html
   (testing "HTML as a browser writes it, with nothing sanitized"
     (is (= "<p class=\"x\" onclick=\"y()\">a &amp; b<br>c</p><ul><li>one</li><li>two</li></ul>"

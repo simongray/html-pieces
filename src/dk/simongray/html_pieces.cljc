@@ -132,6 +132,8 @@
   - :element-fn, a function of an element that's kept, which gives the
     Hiccup to put in its place
   - :trusted-element-fn?, true to keep what :element-fn gives unchecked
+  - :heading-level, the level that hiccup moves the highest heading to,
+    e.g. 3 on a page whose own headings are h1 and h2
   - :links?, true to put the URL of each link after it in plain text
   - :quirks?, true to read a C1 control character as windows-1252 in text
     and Markdown, a repair that the HTML Standard doesn't make
@@ -157,6 +159,7 @@
    :url-fn              identity
    :element-fn          nil
    :trusted-element-fn? false
+   :heading-level       nil
    :paragraph-tags      paragraph-tags
    :line-tags           line-tags
    :max-quote-depth     max-quote-depth
@@ -478,6 +481,37 @@
                   :else                  (sanitized [x] true again))))]
       (into [] (mapcat node) nodes))))
 
+(def ^:no-doc heading-levels
+  "The level of each heading."
+  {:h1 1 :h2 2 :h3 3 :h4 4 :h5 5 :h6 6})
+
+(defn- moved-heading
+  "The `tag`, `shift` levels lower when it's a heading, within h1 to h6."
+  [tag shift]
+  (if-let [level (heading-levels tag)]
+    (keyword (str "h" (-> (+ level shift) (max 1) (min 6))))
+    tag))
+
+;; The headings of a piece start where its writer chose, often at h1, which
+;; would break the outline of the page that shows it.
+;; https://www.w3.org/WAI/tutorials/page-structure/headings/
+(defn- with-heading-level
+  "The sanitized `nodes` with their highest heading at `level`, and the
+  others as far below it as before."
+  [nodes level]
+  (if-let [levels (->> (page-elements nodes)
+                       (keep (comp heading-levels tag-of))
+                       seq)]
+    (let [shift (- level (apply min levels))]
+      (letfn [(node [x]
+                (if (vector? x)
+                  (into [(moved-heading (x 0) shift) (x 1)]
+                        (map node)
+                        (subvec x 2))
+                  x))]
+        (mapv node nodes)))
+    nodes))
+
 (defn hiccup
   "The HTML, plain text or Hiccup `x` as Hiccup that's safe to render, by
   these keys of `opts`:
@@ -494,6 +528,9 @@
   - an element that's kept, once its attributes and children are safe,
     is given to :element-fn, and replaced by the Hiccup that it returns,
     e.g. a p in place of an h1
+  - with a :heading-level, e.g. 3 on a page whose own headings are h1 and
+    h2, the highest heading of the result takes that level, and the
+    others keep their distance below it, within h1 to h6
 
   What :element-fn returns is sanitized again, so that it can't bring in
   what isn't allowed, unless :trusted-element-fn? is true. An element
@@ -506,8 +543,10 @@
   ([x]
    (hiccup x {}))
   ([x opts]
-   (let [[nodes opts] (readable x opts)]
-     (apply list (sanitized nodes (not (string? x)) opts)))))
+   (let [[nodes opts] (readable x opts)
+         level        (:heading-level opts)]
+     (apply list (cond-> (sanitized nodes (not (string? x)) opts)
+                   level (with-heading-level level))))))
 
 ;; The text of a script or a style that's allowed is escaped too, unlike in
 ;; a browser, since text that held its end tag would end it early
